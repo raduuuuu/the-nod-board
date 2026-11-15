@@ -45,7 +45,8 @@ import {
   startPendingSince,
   writeWantedVersion,
 } from './inbox';
-import { classify, projectOfCwd, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
+import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
+import { noteStart, projectAt } from './project';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
 export const QUESTION_TOOL = 'AskUserQuestion';
@@ -148,7 +149,7 @@ export function questionObservations(p: HookPayload, now: number, home: string, 
     source: 'hook' as const,
     call: p.toolUseId,
     session: p.sessionId,
-    project: projectOfCwd(p.cwd, home) ?? '(unknown)',
+    project: projectAt(dir, p.sessionId, p.cwd, home) ?? '(unknown)',
   };
   // A payload whose questions cannot be read still leaves a trace, so the app can say so.
   if (!p.questions) {
@@ -200,6 +201,12 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
     noteAttrs(dir, payload.who, now);
   } catch (err) {
     logError(dir, `could not record who is asking: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
+  }
+  try {
+    // After the attributes: a session that ended took its state with it, and this start begins anew.
+    if (payload.event === 'SessionStart') noteStart(dir, payload.sessionId, payload.cwd, env.HOME || os.homedir());
+  } catch (err) {
+    logError(dir, `could not record the session's project: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
   }
   try {
     const line = sessionEventLine(payload, now);

@@ -104,6 +104,19 @@ function get(file: string): string | null {
   }
 }
 
+/**
+ * A value of the session that is not an attribute (project.ts keeps the session's project here).
+ * It lives and is removed with the session's other state. putSessionValue throws on a failed write.
+ */
+export function putSessionValue(dir: string, sessionId: string, name: string, value: string): void {
+  const sdir = sessionDir(dir, sessionId);
+  if (sdir && SAFE_ID.test(name)) put(path.join(sdir, name), value);
+}
+export function getSessionValue(dir: string, sessionId: string, name: string): string | null {
+  const sdir = sessionDir(dir, sessionId);
+  return sdir && SAFE_ID.test(name) ? get(path.join(sdir, name)) : null;
+}
+
 /** Remove the state of sessions that left no trace for STATE_MAX_AGE_MS (a session that never ended). */
 function prune(dir: string, now: number): void {
   const root = path.join(dir, STATE_DIR);

@@ -27,7 +27,8 @@
  * stored. Codex has no skill attribution, so the skill stays unknown.
  */
 import { MAIN_AGENT } from './attrs';
-import { classify, projectOfCwd, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
+import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
+import { resolveProject } from './project';
 import { ASKED, FORMAT_VERSION, type Observation } from './outcomes';
 
 export const CODEX = 'Codex CLI';
@@ -80,7 +81,7 @@ export function codexObservations(v: unknown, now: number, home: string): Observ
   const call = str(v.tool_use_id);
   if (v.tool_name !== CODEX_QUESTION_TOOL || !session || !call) return [];
   if (event !== 'PreToolUse' && event !== 'PostToolUse') return [];
-  const base = { v: FORMAT_VERSION, source: 'hook' as const, call, session, project: projectOfCwd(str(v.cwd), home) ?? '(unknown)' };
+  const base = { v: FORMAT_VERSION, source: 'hook' as const, call, session, project: resolveProject(str(v.cwd), home) ?? '(unknown)' };
   const raw = isObject(v.tool_input) ? v.tool_input.questions : null;
   const questions = toQuestions(raw);
   if (!questions) {

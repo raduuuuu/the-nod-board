@@ -152,8 +152,8 @@ about, a pending server start, when the last import ran):
   asked when that is known: the model id, the skill or command name, the agent type and the
   product (names only, each cut to 80 characters). It is never compacted; it is the history.
 
-While a session runs, `attrs/<session id>/` holds the name of the skill each of its agents is in
-and the session's model, one short file each. A session's folder is removed when the session
+While a session runs, `attrs/<session id>/` holds the name of the skill each of its agents is in,
+the session's model and the session's project, one short file each. A session's folder is removed when the session
 ends, or after 7 days.
 
 Never stored: option text, the answer you picked or typed, prompts, tool input or output.
@@ -194,6 +194,22 @@ Per question of an AskUserQuestion call, the first rule that matches:
   per spoke, named at its edge, because its five measures differ in size; compare its outlines
   spoke by spoke.
 - A session is dated by its latest answer.
+- A session's project is the folder it started in, not wherever it worked later. The folder is
+  named after its git repository: the last part of the address of the remote called `origin`,
+  or the repository's main folder when there is no such remote. A renamed checkout, a second
+  clone and a worktree are therefore one project. The home directory is "(home directory)"; a
+  folder in no repository has its own name. Only the name is kept: the hook reads `.git/config`
+  for it, starts no program, and never stores the address.
+- A session started in the home directory has no project of its own. Each of its questions
+  belongs to the repository it was asked in, and to "(home directory)" when it was asked in
+  none.
+- History captured by 0.2.1 or earlier was named after the folder a question was asked in. Run
+  `/nod-board:import` once after updating: it names past sessions by the new rule.
+- A folder that no longer exists cannot be looked up, so its sessions keep the folder's name.
+  To rename or merge projects yourself, write `~/.agent-inbox/project-aliases.json`, one JSON
+  object of `"name shown": "name wanted"`, for example `{"old-folder": "my-repo"}`. It is
+  applied when the board is read and never changes what is stored. `/nod-board:status` says
+  how many aliases are in use, or that the file could not be read.
 - A question Codex asked is counted by the same rules. When its tool returns with no answer at
   all, the question is dismissed.
 - Projects are named after the last segment of the session's working directory.

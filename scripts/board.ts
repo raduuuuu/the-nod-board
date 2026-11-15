@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type ServerState, type StartDeps } from '../hook';
 import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
+import { ALIASES_FILE, readAliases } from '../project';
 
 type Env = Record<string, string | undefined>;
 
@@ -125,6 +126,10 @@ export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promi
     `hook errors: ${errorLines(dir).toLocaleString('en-US')}`,
     `data folder: ${dir}`,
   );
+  // Said only when the user keeps an alias file, so a board without one reads as before.
+  const aliases = readAliases(dir);
+  if (aliases.state === 'ok') lines.push(`project aliases: ${aliases.names.size.toLocaleString('en-US')}`);
+  if (aliases.state === 'unreadable') lines.push(`project aliases: ${path.join(dir, ALIASES_FILE)} could not be read; it must be one JSON object of "old name": "new name"`);
   return lines;
 }
 

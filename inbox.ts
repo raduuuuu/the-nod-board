@@ -3,7 +3,7 @@
  *
  *   fold(events, now)       pure session state machine (no fs, no clock)
  *   readEventLog / compact  events.jsonl + state-snapshot.jsonl + rotated files (R7)
- *   projects                named after the session's working directory (judgment.ts projectOfCwd)
+ *   projects                named after the folder the session started in, by repository (project.ts)
  *   readTodos               optional gstack integration: <state root>/projects/*\/<project>-TODOS.md, shown only
  *                           when a gstack state directory exists
  *   buildModel              everything above, assembled for server.ts to render
@@ -25,7 +25,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { projectOfCwd } from './judgment';
+import { aliasOf, projectOfSession, readAliases } from './project';
 
 export const HOUR = 3_600_000;
 export const STALE_AFTER_MS = 12 * HOUR;
@@ -699,10 +699,15 @@ export class Inbox {
     const sessions = fold(log.events, now);
     const shown: ShownSession[] = [];
     let running = 0;
+    // A session is named as its questions are (project.ts): after the folder it started in.
+    const startCwd = new Map<string, string>();
+    for (const e of [...log.events].sort((a, b) => a.ts - b.ts)) if (e.cwd && !startCwd.has(e.session_id)) startCwd.set(e.session_id, e.cwd);
+    const aliases = readAliases(this.cfg.dir);
     for (const s of sessions.values()) {
       if (s.state === 'RUNNING') running++;
       if (s.display === 'HIDDEN') continue;
-      shown.push({ ...s, project: projectOfCwd(s.cwd, this.cfg.home) ?? UNASSIGNED });
+      const name = projectOfSession(startCwd.get(s.session_id), s.cwd, this.cfg.home);
+      shown.push({ ...s, project: name === null ? UNASSIGNED : aliasOf(aliases, name) });
     }
     const newest = (a: ShownSession, b: ShownSession) => b.since - a.since;
     const by = (d: DisplayState) => shown.filter((s) => s.display === d).sort(newest);

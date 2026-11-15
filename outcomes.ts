@@ -48,6 +48,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CLAUDE_CODE } from './attrs';
+import { aliasOf, projectResolver, readAliases } from './project';
 import {
   CONFLICT,
   OUTCOMES,
@@ -312,6 +313,9 @@ export function reconcile(observations: readonly Observation[], opts: ReconcileO
 
   const rows: QuestionRow[] = [];
   for (const list of byQuestion.values()) {
+    // The project comes from the line written last: a later line was named by the rule of its day,
+    // so an import after an update renames the history it has looked at (project.ts).
+    const project = list[list.length - 1].project;
     // Describe the question from its best-informed observation; ties go to the hook, then to the earlier one.
     const best = [...list].sort(
       (a, b) =>
@@ -348,7 +352,7 @@ export function reconcile(observations: readonly Observation[], opts: ReconcileO
       chip: best.chip,
       title: best.title,
       session: best.session,
-      project: best.project,
+      project,
       askTs,
       // Elapsed time belongs to the call; aggregate() counts it once per call.
       elapsedMs: answered && askTs !== null && answerTs !== null && answerTs >= askTs ? answerTs - askTs : null,
@@ -397,7 +401,9 @@ export function lastImportAt(dir: string): number | null {
 
 export function boardData(dir: string, opts: ReconcileOptions): BoardData {
   const stored = readObservations(dir);
-  const rows = reconcile(stored.observations, opts);
+  // The user's own renames are applied here, on the way to the board; what is stored keeps its name.
+  const aliases = readAliases(dir);
+  const rows = reconcile(stored.observations, opts).map((r) => (aliases.names.has(r.project) ? { ...r, project: aliasOf(aliases, r.project) } : r));
   const answered = callAnswerTimes(stored.observations);
   return {
     totals: aggregate(rows, { now: opts.now, answeredAt: (call) => answered.get(call) ?? null }),
@@ -476,7 +482,7 @@ export async function importHistory(dir: string, transcriptsDir: string, home: s
       skipped++;
     }
   }
-  const observations = observationsFromCalls(mergeCalls(files, home));
+  const observations = observationsFromCalls(mergeCalls(files, home, projectResolver(home)));
   const startedAt = Date.now();
   const added = appendNew(dir, observations);
   // Recorded after the store was written: questions asked before this moment have now been looked at.

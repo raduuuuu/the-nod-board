@@ -32,6 +32,9 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { CLAUDE_CODE, UNKNOWN, fromTranscript, type Who } from './attrs';
+import { HOME_PROJECT, projectOfCwd, projectOfSession } from './project';
+
+export { HOME_PROJECT, projectOfCwd };
 
 export const OUTCOMES = [
   'AGREED',
@@ -63,7 +66,6 @@ export const SESSION_MARKS = 60;
 export const PROFILE_MAX = 4;
 export const MAX_OVERRIDES = 50;
 export const TITLE_MAX = 120;
-export const HOME_PROJECT = '(home directory)';
 
 // ---------------------------------------------------------------- transcript line shapes
 
@@ -200,6 +202,8 @@ export interface FileCall {
 
 export interface FileRows {
   calls: FileCall[];
+  /** Working directory on the file's first line that carries one: the folder the session started in. Absent when no line does. */
+  startCwd?: string;
   /** Candidate lines that were not JSON. */
   unparsable: number;
   /** Lines that hold an AskUserQuestion tool_use this parser could not read. */
@@ -209,6 +213,7 @@ export interface FileRows {
 const NEWLINE = 0x0a;
 /** How a tool_use block of this tool is serialised. Tool definitions carry the name too, but never followed by "input". */
 const USE_MARKER = `"name":"${TOOL}","input":`;
+const CWD_MARKER = '"cwd":"';
 
 /**
  * Scan one transcript from its first byte. Lines are framed on newline bytes, so a record or
@@ -224,6 +229,15 @@ export async function scanChunks(chunks: AsyncIterable<Uint8Array>): Promise<Fil
   const rows: FileRows = { calls: [], unparsable: 0, unrecognized: 0 };
 
   const onLine = (line: Buffer) => {
+    // The first line that says where the session is working says where it started.
+    if (rows.startCwd === undefined && line.includes(CWD_MARKER)) {
+      try {
+        const first = JSON.parse(line.toString('utf8')) as unknown;
+        if (isObject(first) && typeof first.cwd === 'string' && first.cwd) rows.startCwd = first.cwd;
+      } catch {
+        // not a record; a later line will say
+      }
+    }
     const namesTool = line.includes(TOOL);
     let wanted = namesTool;
     if (!wanted && pending.size && line.includes('tool_result')) {
@@ -326,8 +340,21 @@ const nullsLast = (a: number | null, b: number | null) =>
  * of its earliest copy; its answer comes from the earliest copy with a decoded result. Copies
  * that decode to different answers make the call a conflict (shown as UNDECODED). File order never matters.
  */
-export function mergeCalls(files: readonly { ref: FileRef; rows: FileRows }[], home: string = os.homedir()): MergedCall[] {
+export function mergeCalls(
+  files: readonly { ref: FileRef; rows: FileRows }[],
+  home: string = os.homedir(),
+  nameOf: (start: string | null | undefined, asked: string | null | undefined) => string | null = (start, asked) => projectOfSession(start, asked, home),
+): MergedCall[] {
   const byId = new Map<string, { ref: FileRef; call: FileCall }[]>();
+  // Where each session started: its own file says so; a subagent's file is asked only when that one cannot.
+  const started = new Map<string, { cwd: string; own: boolean }>();
+  for (const f of files) {
+    const cwd = f.rows.startCwd;
+    if (!cwd) continue;
+    const own = path.basename(f.ref.path) === `${f.ref.session}.jsonl`;
+    const known = started.get(f.ref.session);
+    if (!known || (own && !known.own) || (own === known.own && cwd.localeCompare(known.cwd) < 0)) started.set(f.ref.session, { cwd, own });
+  }
   for (const f of files) {
     for (const call of f.rows.calls) {
       const list = byId.get(call.id);
@@ -368,8 +395,9 @@ export function mergeCalls(files: readonly { ref: FileRef; rows: FileRows }[], h
     out.push({
       ...(who ? { who } : {}),
       id,
-      // The working directory names the project as live capture does; the transcript folder is the fallback.
-      project: projectOfCwd(copies.find((c) => c.call.cwd)?.call.cwd, home) ?? owner.ref.project,
+      // The project is the one the session started in, as live capture names it (project.ts). A session
+      // whose start is not on record is named after where the question was asked, then after its folder.
+      project: nameOf(started.get(owner.ref.session)?.cwd, copies.find((c) => c.call.cwd)?.call.cwd) ?? owner.ref.project,
       session: owner.ref.session,
       ts: owner.call.useTs,
       questions,
@@ -742,14 +770,6 @@ export function weeklyTimes(rows: readonly QuestionRow[], now: number, weeks: nu
 }
 
 // ---------------------------------------------------------------- listing
-
-/** Display name for a project, from the working directory a session ran in: its last path segment. */
-export function projectOfCwd(cwd: string | null | undefined, home: string): string | null {
-  if (!cwd) return null;
-  const clean = cwd.replace(/\/+$/, '');
-  if (clean === home.replace(/\/+$/, '')) return HOME_PROJECT;
-  return path.basename(clean) || null;
-}
 
 /** Display name for a project directory: Claude Code names it after the cwd with separators as dashes. */
 export function projectLabel(dirName: string, home: string): string {
