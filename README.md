@@ -127,7 +127,8 @@ question text.
 
 ## Releasing
 
-1. Raise `version` in `.claude-plugin/plugin.json` (the one place it is written) and merge to `main`.
+1. Raise `version` in `.claude-plugin/plugin.json` and in `.codex-plugin/plugin.json` (a test keeps
+   the two equal) and merge to `main`.
 2. Run the `release` workflow from the Actions tab.
 
 The workflow runs the tests, builds the dashboard twice and compares the results, commits source
