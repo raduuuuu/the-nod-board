@@ -668,9 +668,12 @@ describe('who asked, through the real hook', () => {
     const env = { PATH: '/usr/bin:/bin', HOME: root, AGENT_INBOX_DIR: dir, AGENT_INBOX_PORT: '4998' };
     const out: string[] = [];
     for (const l of lines) {
+      // A session start through the real hook starts a real, detached server: never replay one here.
+      // What a session start means for who is asking is covered in attrs.test.ts.
+      if (l.hook_event_name === 'SessionStart') continue;
       const r = Bun.spawnSync([process.execPath, HOOK], { stdin: Buffer.from(JSON.stringify(l)), env });
       expect(r.exitCode).toBe(0);
-      if (l.hook_event_name !== 'SessionStart') out.push(r.stdout.toString());
+      out.push(r.stdout.toString());
     }
     return { dir, stdout: out.join('') };
   };
