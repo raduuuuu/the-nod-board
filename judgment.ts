@@ -191,7 +191,7 @@ export function classify(q: QuestionDef, result: CallResult | null): Outcome {
 export interface FileCall {
   id: string;
   useTs: number | null;
-  /** Working directory on the tool_use line; names the project the same way live capture does. */
+  /** Working directory on the tool_use line: where the question was asked (project.ts decides what that names). */
   cwd: string | null;
   questions: QuestionDef[];
   result: CallResult | null;

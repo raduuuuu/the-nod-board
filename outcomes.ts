@@ -24,7 +24,8 @@
  * line stored by 0.1.1 is still a valid line and an observation without attributes is written
  * exactly as 0.1.1 wrote it. A reader from 0.1.1 ignores the extra keys.
  *
- * Reconciliation, per question, strongest evidence wins; arrival order never matters:
+ * Reconciliation, per question, strongest evidence wins; arrival order never matters for the
+ * outcome. (The project's name alone comes from the line written last: see reconcile.)
  *   CONFLICT, or two different observed answers ...... UNDECODED
  *   an observed answer or an exclusion ............... that outcome
  *   an observed rejection (from a transcript) ........ DISMISSED

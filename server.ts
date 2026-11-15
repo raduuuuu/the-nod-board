@@ -4,7 +4,8 @@
  *   GET /                the dashboard app's page (dist/index.html, built by scripts/build.ts)
  *   GET /app.js, /app.css, /fonts/<file>   the app's own files, from a fixed list
  *   GET /api/inbox       the sessions that need attention, as JSON
- *   GET /api/judgment    totals, splits and the weekly trend from the outcome store, as JSON
+ *   GET /api/judgment    totals, answer-time buckets, the profile per model, sessions, splits and
+ *                        the weekly trend from the outcome store, as JSON
  *   GET /health          {app, version, stale, ok, last_event_ts, sources}; ok means the data
  *                        directory is readable (no events yet is ok)
  *
@@ -13,7 +14,8 @@
  * changes anything. The page may load scripts, styles, fonts and data from this server only
  * (CSP), with no inline script; all session text is rendered as text by the app.
  *
- * Env: AGENT_INBOX_PORT (default 4777), plus the paths read by inbox.ts configFromEnv.
+ * Env: AGENT_INBOX_PORT (one fixed port; without it 4777 or the next free one up to 4786), plus
+ * the paths read by inbox.ts configFromEnv.
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';

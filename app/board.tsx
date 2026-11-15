@@ -3,19 +3,22 @@
  *
  *   wide (1024px and up)                          narrow
  *   +-------------+----------------------------+   Needs you
- *   | NEEDS YOU   | acceptance number          |   acceptance number
- *   | (aside)     |   median | fast | 7 days   |     three figures, one per line
- *   |             | trend                      |   trend
+ *   | NEEDS YOU   | acceptance number, outcome |   acceptance number, outcome bar,
+ *   | (aside)     |   bar, last 7 days         |     last 7 days
+ *   | TODOS,      |   [histogram of answer     |   histogram of answer times
+ *   |   folded    |    times, beside from 1280]|
+ *   |             | trend (share, answer time) |   trend
  *   |             | recent sessions (10)       |   recent sessions
  *   |             | where you overrode (10,    |   where you overrode
  *   |             |   then "Show all N")       |
  *   |             | [import hint, when it helps]|   [import hint]
- *   |             | splits: skill, model,      |   splits
- *   |             |   project, agent, product  |
+ *   |             | splits: skill, model,      |   splits, and the profile per
+ *   |             |   project, [profile per    |     model after By project
+ *   |             |   model], agent, product   |
  *   +-------------+----------------------------+   capture health
  *   | capture health                           |
  *   +------------------------------------------+
- *   The splits sit two to a row from 1280px.
+ *   The split blocks sit two to a row from 1280px. The graphics themselves are in charts.tsx.
  *
  * Every string from a session (titles, messages, project names) is rendered as text by Preact;
  * nothing here builds HTML from data. The components take plain props, so each state in the
@@ -32,7 +35,7 @@ export interface BoardProps {
   judgment: JudgmentPayload | null;
   link: Link;
   now: number;
-  /** Weeks shown in the trend: 12, or 8 on screens under 640px. */
+  /** The most weeks the trend shows: 12, or 8 on screens under 640px. It starts at the first week with an answer. */
   weeks: number;
   /** Width of the main column in pixels, once measured: the trend is drawn at that width. */
   trendWidth?: number;

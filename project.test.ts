@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -7,12 +7,28 @@ import { handle } from './hook';
 import { Inbox } from './inbox';
 import { mergeCalls, scanChunks, type FileRef, type FileRows } from './judgment';
 import { FORMAT_VERSION, boardData, importHistory, readObservations, reconcile, type Observation } from './outcomes';
-import { ALIASES_FILE, HOME_PROJECT, NAME_MAX, NO_PROJECT, aliasOf, nameOfRemote, noteStart, originUrl, projectAt, projectOfSession, projectResolver, readAliases, repositoryOf, resolveProject, shownName } from './project';
+import { ALIASES_FILE, HOME_PROJECT, NAME_MAX, NO_PROJECT, aliasOf, nameOfRemote, noteStart, originUrl, projectAt, projectOfSession, projectResolver, gstackStateRoot, readAliases, repositoryOf, resolveProject, shownName } from './project';
 
 // Every repository here is a folder written by hand: no git program runs, as none runs in the hook.
 
 const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'nod-board-project-')));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+// The developer's own gstack settings must not decide where these tests look.
+const STATE_VARS = ['AGENT_INBOX_GSTACK_STATE_ROOT', 'GSTACK_STATE_ROOT', 'GSTACK_HOME', 'GSTACK_STATE_DIR'];
+const saved = new Map<string, string | undefined>();
+beforeAll(() => {
+  for (const k of STATE_VARS) {
+    saved.set(k, process.env[k]);
+    delete process.env[k];
+  }
+});
+afterAll(() => {
+  for (const [k, v] of saved) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
+
 let seq = 0;
 /** A fresh home directory with nothing in it. */
 const freshHome = () => {
@@ -308,6 +324,15 @@ describe('import: the project is where the session file says it started', () => 
 });
 
 describe('gstack state folders belong to the project they are kept for', () => {
+  test('the state root: this tool\'s setting, then gstack\'s own three, then ~/.gstack, as for the TODOS list', () => {
+    const all = { AGENT_INBOX_GSTACK_STATE_ROOT: '/a', GSTACK_STATE_ROOT: '/b', GSTACK_HOME: '/c', GSTACK_STATE_DIR: '/d' };
+    expect(gstackStateRoot(all, '/h')).toBe('/a');
+    expect(gstackStateRoot({ ...all, AGENT_INBOX_GSTACK_STATE_ROOT: undefined }, '/h')).toBe('/b');
+    expect(gstackStateRoot({ GSTACK_HOME: '/c', GSTACK_STATE_DIR: '/d' }, '/h')).toBe('/c');
+    expect(gstackStateRoot({ GSTACK_STATE_DIR: '/d' }, '/h')).toBe('/d');
+    expect(gstackStateRoot({}, '/h/')).toBe('/h/.gstack');
+  });
+
   const setup = () => {
     const home = freshHome();
     const state = path.join(home, '.gstack', 'projects');

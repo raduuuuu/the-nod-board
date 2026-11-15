@@ -32,7 +32,7 @@ served locally. Figures are tabular everywhere.
 |---|---|
 | 13px | labels, headings, footer, commands |
 | 16px | body |
-| 20px | the three figures under the number, and its basis |
+| 20px | the basis beside the number, and the last 7 days under it |
 | 40px | the acceptance number, the page's one anchor |
 
 ## Space
@@ -51,7 +51,7 @@ None. Updates change text in place. The reduced-motion setting is respected.
 | 1280px and up | as below; the answer-time histogram sits beside the acceptance number, and the split blocks sit two to a row |
 | 1024px and up | two zones: Needs you 280px on the left, main area fluid, page at most 1440px; one split block per row |
 | 640 to 1023px | one column: Needs you, then the main area, then capture health; tables keep their columns |
-| under 640px | one column; each table row becomes a two-line block that keeps every value ("94% · 312 answers · 38 s") and drops its track and bar; a session's squares take the full width; the trend shows 8 weeks; commands wrap; tap targets at least 44px |
+| under 640px | one column; each table row becomes a two-line block that keeps every value ("94% · 312 answers · 38 s") and drops its track and bar; a session's squares take the full width; the trend shows at most 8 weeks; commands wrap; tap targets at least 44px |
 
 The main area reads top to bottom: the acceptance number with what it rests on, the trend, recent
 sessions, where you overrode, then the splits with the profile per model after By project. What happened lately comes before the breakdowns.
@@ -74,6 +74,9 @@ says how many there are.
 Recent sessions and Where you overrode show 10 rows. The overrides list offers the rest through
 the browser's own disclosure, styled as 13px underlined text in the text color with no marker:
 "Show all 50", then "Show 10". Its open state survives the refresh.
+
+gstack TODOS, when there are any, sit under Needs you behind the same kind of disclosure,
+closed, labelled with their count: "TODOS (33)".
 
 Recent sessions shows a square per answer, in order, 30 to a line: filled took the
 recommendation, hollow chose otherwise. The latest 60 are drawn; a longer session says so beside

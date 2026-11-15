@@ -25,7 +25,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { projectOfSession, readAliases, shownName } from './project';
+import { gstackStateRoot, projectOfSession, readAliases, shownName } from './project';
 
 export const HOUR = 3_600_000;
 export const STALE_AFTER_MS = 12 * HOUR;
@@ -611,12 +611,7 @@ export function configFromEnv(env: Record<string, string | undefined> = process.
   return {
     dir: env.AGENT_INBOX_DIR || path.join(home, '.agent-inbox'),
     home,
-    stateRoot:
-      env.AGENT_INBOX_GSTACK_STATE_ROOT ||
-      env.GSTACK_STATE_ROOT ||
-      env.GSTACK_HOME ||
-      env.GSTACK_STATE_DIR ||
-      path.join(home, '.gstack'),
+    stateRoot: gstackStateRoot(env, home),
     transcriptsDir: env.AGENT_INBOX_TRANSCRIPTS || path.join(home, '.claude', 'projects'),
   };
 }

@@ -34,7 +34,7 @@
  * gstack keeps a project's plans and reviews in <state root>/projects/<name>, outside the
  * checkout, and a planning session asks its questions from there. Those questions belong to
  * <name>. The folder gstack makes for the home directory itself, named after it, is no project.
- * The state root is ~/.gstack, or AGENT_INBOX_GSTACK_STATE_ROOT as for the TODOS list.
+ * The state root is found as for the TODOS list (gstackStateRoot).
  *
  * HOME_PROJECT is the stored marker and keeps its old text, so lines written by any version mean
  * the same; the board shows it as NO_PROJECT.
@@ -67,6 +67,11 @@ const clean = (name: string | null | undefined): string | null => {
   const s = name.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, NAME_MAX);
   return s || null;
 };
+
+/** Where gstack keeps its state: this tool's own setting, then gstack's, then ~/.gstack. */
+export function gstackStateRoot(env: Record<string, string | undefined>, home: string): string {
+  return env.AGENT_INBOX_GSTACK_STATE_ROOT || env.GSTACK_STATE_ROOT || env.GSTACK_HOME || env.GSTACK_STATE_DIR || path.join(trimSlash(home), '.gstack');
+}
 
 /** Display name from a working directory alone: the home directory, or the folder's own name. */
 export function projectOfCwd(cwd: string | null | undefined, home: string): string | null {
@@ -113,7 +118,7 @@ export function originUrl(config: string): string | null {
  * directory itself and for the projects folder, or undefined when `dir` is no state folder.
  */
 function gstackProject(dir: string, home: string): string | undefined {
-  const root = trimSlash(process.env.AGENT_INBOX_GSTACK_STATE_ROOT || path.join(trimSlash(home), '.gstack'));
+  const root = trimSlash(gstackStateRoot(process.env, home));
   const projects = path.join(root, 'projects');
   if (dir === projects) return HOME_PROJECT;
   if (!dir.startsWith(projects + path.sep)) return undefined;

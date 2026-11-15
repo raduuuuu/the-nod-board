@@ -57,7 +57,7 @@ A session that was already open when you installed captures nothing until you ru
 | Command | What it does |
 |---|---|
 | `/nod-board:open` | starts the board when it is not running, opens it in your browser and prints the address |
-| `/nod-board:status` | whether it is running and where, the version, the last event, how many questions are stored, hook errors and the data folder; counts only |
+| `/nod-board:status` | whether it is running and where, the version, the last event, how many questions are stored, hook errors, the data folder and, when you keep an alias file, how many project aliases are in use; counts only |
 | `/nod-board:import` | loads your past sessions; safe to repeat |
 
 On Claude Code older than 2.1.275, install in two steps: `/plugin marketplace add
@@ -163,6 +163,9 @@ server binds 127.0.0.1, rejects any Host header other than `127.0.0.1:<port>` or
 
 You can read both files with any text tool; that is deliberate.
 
+`project-aliases.json` in the same folder is yours: the board reads it and never writes it (see
+"How questions are counted").
+
 ## How questions are counted
 
 Per question of an AskUserQuestion call, the first rule that matches:
@@ -184,7 +187,9 @@ Per question of an AskUserQuestion call, the first rule that matches:
   shows a later prompt, stop or end. A later import replaces an inference with what the
   transcript recorded.
 - Several observations of one question (the hook and an import, or a resumed session's copies)
-  are reconciled by strength of evidence; the order they arrive in never matters.
+  are reconciled by strength of evidence; the order they arrive in never matters. The one
+  exception is the project's name, which comes from the line written last, so that an import
+  after an update can rename history.
 - Time to answer is measured between the hook's two events, once per question prompt, however
   many questions the prompt holds. It is elapsed time, not attention. The "under 15 s" share and
   every median are over timed prompts; a median is shown with at least 5 of them.
@@ -215,7 +220,6 @@ Per question of an AskUserQuestion call, the first rule that matches:
   how many aliases are in use, or that the file could not be read.
 - A question Codex asked is counted by the same rules. When its tool returns with no answer at
   all, the question is dismissed.
-- Projects are named after the last segment of the session's working directory.
 - Who asked: the skill is the one the agent started or the command you typed, until the turn
   ends; "no skill" means the question was asked outside any. The agent is the subagent type, or
   "main agent". The model is not in the hook payload of a question (Claude Code 2.1.325), so a
