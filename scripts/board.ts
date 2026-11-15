@@ -1,0 +1,128 @@
+#!/usr/bin/env bun
+/**
+ * board.ts: the two commands that bring a user back to the board.
+ *
+ *   bun scripts/board.ts open     /nod-board:open    start the server when it is not running, open the
+ *                                                    address in the browser, print the address
+ *   bun scripts/board.ts status   /nod-board:status  say whether it runs and where, and what capture has
+ *                                                    recorded so far
+ *
+ * Both print a few plain lines and nothing from any question: counts, times and paths only. They
+ * reuse the hook's own probe and starter (hook.ts), so "is our server running" is decided in one
+ * place. No process is killed and nothing is changed except starting the server.
+ */
+import { spawn } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type ServerState, type StartDeps } from '../hook';
+import { APP_TITLE, boardUrl, captureSince, portFromEnv } from '../inbox';
+import { readObservations } from '../outcomes';
+
+type Env = Record<string, string | undefined>;
+
+export interface BoardIo {
+  /** Open an address in the user's browser. Returns false when this system has no way to do that. */
+  openInBrowser: (url: string) => boolean;
+  fetchJson: (url: string) => Promise<unknown>;
+  now: () => number;
+}
+
+const OPENERS: Record<string, string> = { darwin: 'open', linux: 'xdg-open' };
+
+export function realIo(): BoardIo {
+  return {
+    openInBrowser: (url) => {
+      const opener = OPENERS[process.platform];
+      const bin = opener ? Bun.which(opener) : null;
+      if (!bin) return false;
+      // The address is built from a number (boardUrl); it is passed as one argument, never through a shell.
+      spawn(bin, [url], { detached: true, stdio: 'ignore' }).unref();
+      return true;
+    },
+    fetchJson: async (url) => (await fetch(url, { signal: AbortSignal.timeout(1_000) })).json(),
+    now: () => Date.now(),
+  };
+}
+
+/** Make sure the current server answers, starting it when needed. Never waits longer than the starter does. */
+async function ensureRunning(env: Env, deps: StartDeps): Promise<ServerState> {
+  const port = portFromEnv(env);
+  let state = await deps.probe(port, deps.version);
+  if (state === 'current' || state === 'foreign') return state;
+  await runStarter(env, deps);
+  for (let waited = 0; waited < STARTER_WAIT_MS; waited += STARTER_STEP_MS) {
+    state = await deps.probe(port, deps.version);
+    if (state === 'current') return state;
+    await deps.sleep(STARTER_STEP_MS);
+  }
+  return state;
+}
+
+export async function openBoard(env: Env, deps: StartDeps, io: BoardIo): Promise<string[]> {
+  const port = portFromEnv(env);
+  const url = boardUrl(port);
+  const state = await ensureRunning(env, deps);
+  if (state === 'foreign') return [`${APP_TITLE}: port ${port} is used by another program, so the dashboard is not running. Set AGENT_INBOX_PORT to a free port.`];
+  if (state !== 'current') return [`${APP_TITLE}: the dashboard did not start. The log is ${path.join(dataDir(env), 'server.log')}.`];
+  return io.openInBrowser(url) ? [`${APP_TITLE}: opened ${url}`] : [`${APP_TITLE} is running at ${url}`, 'Open that address in your browser.'];
+}
+
+function ago(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s} s ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 48 * 3600) return `${Math.floor(s / 3600)} h ago`;
+  return `${Math.floor(s / 86_400)} d ago`;
+}
+
+function errorLines(dir: string): number {
+  try {
+    return fs.readFileSync(path.join(dir, 'hook-errors.log'), 'utf8').split('\n').filter(Boolean).length;
+  } catch {
+    return 0;
+  }
+}
+
+/** What a user needs to tell whether capture works, and what to paste into a bug report. Counts only. */
+export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promise<string[]> {
+  const dir = dataDir(env);
+  const port = portFromEnv(env);
+  const url = boardUrl(port);
+  const state = await deps.probe(port, deps.version);
+  const running: Record<ServerState, string> = {
+    current: `yes, at ${url}`,
+    stale: `an older version is answering at ${url}; it is replaced at the next session start or by /nod-board:open`,
+    silent: 'no. Start it with /nod-board:open',
+    foreign: `no: port ${port} is used by another program. Set AGENT_INBOX_PORT to a free port`,
+  };
+  const lines = [`${APP_TITLE} ${deps.version}`, `running: ${running[state]}`];
+  if (state === 'current') {
+    try {
+      const health = (await io.fetchJson(`${url}health`)) as { last_event_ts?: unknown };
+      const ts = typeof health.last_event_ts === 'number' ? health.last_event_ts : null;
+      lines.push(`last event: ${ts === null ? 'none yet' : ago(io.now() - ts)}`);
+    } catch {
+      lines.push('last event: could not be read');
+    }
+  }
+  const since = captureSince(dir);
+  const stored = readObservations(dir);
+  lines.push(
+    `capturing since: ${since === null ? 'not started' : new Date(since).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'}`,
+    `questions stored: ${new Set(stored.observations.map((o) => `${o.call}/${o.pos}`)).size.toLocaleString('en-US')}`,
+    `past sessions: ${stored.observations.some((o) => o.source === 'import') ? 'imported' : 'not imported (run /nod-board:import)'}`,
+    `hook errors: ${errorLines(dir).toLocaleString('en-US')}`,
+    `data folder: ${dir}`,
+  );
+  return lines;
+}
+
+if (import.meta.main) {
+  const command = process.argv[2];
+  const run = command === 'open' ? openBoard : command === 'status' ? statusLines : null;
+  if (!run) {
+    console.log('usage: bun scripts/board.ts open|status');
+    process.exit(2);
+  }
+  console.log((await run(process.env, realDeps(path.join(import.meta.dir, '..')), realIo())).join('\n'));
+}

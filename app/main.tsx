@@ -58,7 +58,8 @@ function App() {
     };
   }, []);
 
-  return <Board inbox={inbox} judgment={judgment} link={link} now={now} weeks={narrow ? 8 : 12} />;
+  // The page knows its own address; the port is whatever this server was started on.
+  return <Board inbox={inbox} judgment={judgment} link={link} now={now} weeks={narrow ? 8 : 12} address={`${window.location.origin}/`} />;
 }
 
 render(<App />, document.getElementById('app')!);

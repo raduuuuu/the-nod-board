@@ -459,6 +459,48 @@ export function portFromEnv(env: Record<string, string | undefined> = process.en
   return Number(env.AGENT_INBOX_PORT) || DEFAULT_PORT;
 }
 
+/** The board's address, the one place it is spelled out. Always this machine. */
+export function boardUrl(port: number): string {
+  return `http://127.0.0.1:${port}/`;
+}
+
+/** Holds the address the first-run line last showed, so the line appears once per address. */
+export const SHOWN_FILE = 'address-shown';
+/** Holds the time a server start was launched; removed by the first session start that finds the server answering. */
+export const PENDING_FILE = 'server-start-pending';
+
+function readSmall(file: string): string | null {
+  try {
+    return fs.readFileSync(file, 'utf8').trim() || null;
+  } catch {
+    return null;
+  }
+}
+function writeSmall(dir: string, name: string, text: string): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, name), `${text}\n`, { mode: 0o600 });
+}
+
+/** The address the user was last told about, or null when they were never told. */
+export function shownAddress(dir: string): string | null {
+  return readSmall(path.join(dir, SHOWN_FILE));
+}
+export function markAddressShown(dir: string, url: string): void {
+  writeSmall(dir, SHOWN_FILE, url);
+}
+
+/** When a server start was launched that no session start has yet seen succeed, or null. */
+export function startPendingSince(dir: string): number | null {
+  const n = Number(readSmall(path.join(dir, PENDING_FILE)));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+export function markStartPending(dir: string, now: number): void {
+  writeSmall(dir, PENDING_FILE, String(now));
+}
+export function clearStartPending(dir: string): void {
+  fs.rmSync(path.join(dir, PENDING_FILE), { force: true });
+}
+
 /** The version in this checkout's plugin manifest, the one place it is written. */
 export function pluginVersion(root: string = import.meta.dir): string {
   try {

@@ -20,7 +20,20 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { APP_NAME, APP_TITLE, markCaptureStart, pluginVersion, portFromEnv, writeWantedVersion } from './inbox';
+import {
+  APP_NAME,
+  APP_TITLE,
+  boardUrl,
+  clearStartPending,
+  markAddressShown,
+  markCaptureStart,
+  markStartPending,
+  pluginVersion,
+  portFromEnv,
+  shownAddress,
+  startPendingSince,
+  writeWantedVersion,
+} from './inbox';
 import { classify, projectOfCwd, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
@@ -179,11 +192,38 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
 //
 // No process is ever killed and the server gains no write route: an older server learns from the
 // wanted-version file that it should leave, says so on /health and exits.
+//
+// What the user is told at session start, each at most once:
+//
+//   the address was never shown (or has changed)        a start was launched earlier and the
+//   ---------------------------------------------       server still does not answer
+//   server current -> the first-run line                ----------------------------------
+//   server silent  -> launch, then wait up to 2 s        (the pending mark is older than 15 s)
+//                     for it to answer:                  -> one line naming server.log, and a
+//                       answers -> the first-run line       fresh start is launched
+//                       not yet -> nothing now; the
+//                                  line comes at the
+//                                  next session start
+//
+// The first-run line never shows an address that has not answered /health. Only that first-run
+// case waits; every other session start returns at once. A reboot or a stopped server leaves no
+// pending mark, so it is relaunched silently.
 
 export type ServerState = 'current' | 'stale' | 'silent' | 'foreign';
 export const PROBE_TIMEOUT_MS = 250;
 export const STARTER_WAIT_MS = 5_000;
 export const STARTER_STEP_MS = 200;
+/** How long the first session start waits for the server it launched, so it can show a working address. */
+export const FIRST_RUN_WAIT_MS = 2_000;
+/** A launched start that still does not answer after this long has failed. The starter gives up after STARTER_WAIT_MS. */
+export const START_GRACE_MS = 15_000;
+
+export function firstRunLine(url: string): string {
+  return `${APP_TITLE} is running at ${url} and keeps everything on this machine. Open it with /nod-board:open; load your past sessions with /nod-board:import.`;
+}
+export function failedStartLine(dir: string): string {
+  return `${APP_TITLE}: the dashboard did not start. The log is ${path.join(dir, 'server.log')}.`;
+}
 
 export async function probeServer(port: number, version: string, fetchImpl: typeof fetch = fetch): Promise<ServerState> {
   let res: Response;
@@ -221,22 +261,55 @@ export function realDeps(root: string = import.meta.dir): StartDeps {
   return { root, version, probe: probeServer, launch: launchDetached, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
 }
 
-/** Returns a line for the user, or null. Never waits for a server to start. */
+/**
+ * Returns a line for the user, or null. Waits (at most FIRST_RUN_WAIT_MS) only when the address
+ * was never shown and this call launched the server; see the table above.
+ */
 export async function onSessionStart(env: Record<string, string | undefined>, deps: StartDeps): Promise<string | null> {
   const dir = dataDir(env);
   const port = portFromEnv(env);
+  const url = boardUrl(port);
   try {
     writeWantedVersion(dir, deps.version, deps.root);
     markCaptureStart(dir, Date.now());
   } catch (err) {
     logError(dir, `could not record the wanted server version: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
   }
-  const state = await deps.probe(port, deps.version);
-  if (state === 'current') return null;
+  // Marker files are a convenience: when one cannot be read or written the line may repeat, never mislead.
+  const quietly = <T>(what: string, fn: () => T, fallback: T): T => {
+    try {
+      return fn();
+    } catch (err) {
+      logError(dir, `could not ${what}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
+      return fallback;
+    }
+  };
+  const firstRun = quietly('read the shown address', () => shownAddress(dir), null) !== url;
+
+  let state = await deps.probe(port, deps.version);
   if (state === 'foreign')
     return `${APP_TITLE}: port ${port} is used by another program, so the dashboard was not started. Set AGENT_INBOX_PORT to a free port.`;
-  deps.launch([path.join(deps.root, 'hook.ts'), '--start-server'], null);
-  return null;
+  if (state !== 'current') {
+    const now = Date.now();
+    const pending = quietly('read the pending start', () => startPendingSince(dir), null);
+    const failed = pending !== null && now - pending > START_GRACE_MS;
+    deps.launch([path.join(deps.root, 'hook.ts'), '--start-server'], null);
+    // A start another session launched moments ago keeps its own time, so its failure is still noticed.
+    if (pending === null || failed) quietly('record the pending start', () => markStartPending(dir, now), undefined);
+    if (failed) return failedStartLine(dir);
+    if (!firstRun) return null;
+    const began = performance.now();
+    for (let waited = 0; waited < FIRST_RUN_WAIT_MS && performance.now() - began < FIRST_RUN_WAIT_MS; waited += STARTER_STEP_MS) {
+      await deps.sleep(STARTER_STEP_MS);
+      state = await deps.probe(port, deps.version);
+      if (state === 'current') break;
+    }
+    if (state !== 'current') return null;
+  }
+  quietly('clear the pending start', () => clearStartPending(dir), undefined);
+  if (!firstRun) return null;
+  quietly('record the shown address', () => markAddressShown(dir, url), undefined);
+  return firstRunLine(url);
 }
 
 /** The detached starter: wait for a stale server to leave, then start the current one. */

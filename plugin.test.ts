@@ -3,9 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  FIRST_RUN_WAIT_MS,
   PROBE_TIMEOUT_MS,
   QUESTION_TOOL,
   SESSION_EVENTS,
+  START_GRACE_MS,
+  firstRunLine,
   onSessionStart,
   probeServer,
   questionObservations,
@@ -14,9 +17,25 @@ import {
   type ServerState,
   type StartDeps,
 } from './hook';
-import { APP_NAME, SINCE_FILE, WANTED_FILE, captureSince, fold, parseLines, pluginVersion, readWantedVersion } from './inbox';
+import {
+  APP_NAME,
+  SINCE_FILE,
+  WANTED_FILE,
+  boardUrl,
+  captureSince,
+  fold,
+  markAddressShown,
+  markCaptureStart,
+  markStartPending,
+  parseLines,
+  pluginVersion,
+  readWantedVersion,
+  shownAddress,
+  startPendingSince,
+} from './inbox';
 import { aggregate } from './judgment';
-import { OUTCOMES_FILE, readObservations, readQuestions } from './outcomes';
+import { ASKED, FORMAT_VERSION, OUTCOMES_FILE, appendObservation, readObservations, readQuestions } from './outcomes';
+import { openBoard, statusLines, type BoardIo } from './scripts/board';
 
 const REPO = import.meta.dir;
 const HOOK = path.join(REPO, 'hook.ts');
@@ -301,6 +320,12 @@ describe('server start from the hook', () => {
     const root = tmp();
     return { HOME: root, AGENT_INBOX_DIR: path.join(root, 'inbox'), AGENT_INBOX_PORT: '4999' };
   };
+  /** An environment whose user has already been told the address: every session start but the first. */
+  const toldEnv = () => {
+    const env = envFor();
+    markAddressShown(env.AGENT_INBOX_DIR, boardUrl(4999));
+    return env;
+  };
 
   test('probe: ours and current, ours but older, ours but stale, another program, nothing listening', async () => {
     const answering = (body: unknown, status = 200) => (async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })) as unknown as typeof fetch;
@@ -324,7 +349,7 @@ describe('server start from the hook', () => {
   });
 
   test('session start with a current server: records the wanted version and launches nothing', async () => {
-    const env = envFor();
+    const env = toldEnv();
     const { d, launched } = deps(['current']);
     expect(await onSessionStart(env, d)).toBeNull();
     expect(launched).toEqual([]);
@@ -341,7 +366,7 @@ describe('server start from the hook', () => {
   test('session start with nothing listening, or an older server: launches the starter and returns without waiting', async () => {
     for (const state of ['silent', 'stale'] as ServerState[]) {
       const { d, launched, probes, slept } = deps([state]);
-      expect(await onSessionStart(envFor(), d)).toBeNull();
+      expect(await onSessionStart(toldEnv(), d)).toBeNull();
       expect(launched).toEqual([{ args: ['/plugin/hook.ts', '--start-server'], logFile: null }]);
       expect([probes(), slept()]).toEqual([1, 0]);
     }
@@ -418,6 +443,7 @@ describe('update with a real older server', () => {
       },
     };
     expect(await probeServer(port, '1.0.0')).toBe('current');
+    markAddressShown(dir, boardUrl(port)); // an update, not a first run: the user already knows the address
     expect(await onSessionStart(env, d)).toBeNull();
     expect(starter).not.toBeNull();
     expect(await starter!).toBe('started');
@@ -427,6 +453,195 @@ describe('update with a real older server', () => {
       expect([body.version, body.stale]).toEqual(['2.0.0', false]);
     } finally {
       current.stop();
+    }
+  });
+});
+
+describe('what a session start tells the user', () => {
+  const tmpEnv = () => {
+    const root = tmp();
+    return { HOME: root, AGENT_INBOX_DIR: path.join(root, 'inbox'), AGENT_INBOX_PORT: '4999' };
+  };
+  const URL_4999 = 'http://127.0.0.1:4999/';
+  const deps = (states: ServerState[]) => {
+    const launched: string[][] = [];
+    let probes = 0;
+    let slept = 0;
+    const d: StartDeps = {
+      root: '/plugin',
+      version: '1.2.3',
+      probe: async () => states[Math.min(probes++, states.length - 1)],
+      launch: (args) => void launched.push(args),
+      sleep: async (ms) => void (slept += ms),
+    };
+    return { d, launched, probes: () => probes, slept: () => slept };
+  };
+
+  test('first session with the server answering: one line with the address, the promise and both commands, then never again', async () => {
+    const env = tmpEnv();
+    const { d, launched } = deps(['current']);
+    expect(await onSessionStart(env, d)).toBe(
+      `The Nod Board is running at ${URL_4999} and keeps everything on this machine. Open it with /nod-board:open; load your past sessions with /nod-board:import.`,
+    );
+    expect(shownAddress(env.AGENT_INBOX_DIR)).toBe(URL_4999);
+    expect(await onSessionStart(env, d)).toBeNull();
+    expect(launched).toEqual([]);
+  });
+
+  test('first session with nothing running: launches the server, waits for it to answer, then shows the line', async () => {
+    const env = tmpEnv();
+    const { d, launched, probes, slept } = deps(['silent', 'silent', 'silent', 'current']);
+    expect(await onSessionStart(env, d)).toBe(firstRunLine(URL_4999));
+    expect(launched).toEqual([['/plugin/hook.ts', '--start-server']]);
+    expect([probes(), slept()]).toEqual([4, 600]);
+    expect(startPendingSince(env.AGENT_INBOX_DIR)).toBeNull(); // the start was seen to succeed
+  });
+
+  test('first session and the server is slower than 2 s: nothing is shown yet, and never an address that did not answer', async () => {
+    const env = tmpEnv();
+    const slow = deps(['silent']);
+    expect(await onSessionStart(env, slow.d)).toBeNull();
+    expect(slow.slept()).toBe(FIRST_RUN_WAIT_MS);
+    expect(shownAddress(env.AGENT_INBOX_DIR)).toBeNull();
+    expect(startPendingSince(env.AGENT_INBOX_DIR)).not.toBeNull();
+    // The next session start finds it answering and shows the line then.
+    expect(await onSessionStart(env, deps(['current']).d)).toBe(firstRunLine(URL_4999));
+  });
+
+  test('the address changes: the line is shown again, once, with the new address', async () => {
+    const env = tmpEnv();
+    await onSessionStart(env, deps(['current']).d);
+    const moved = { ...env, AGENT_INBOX_PORT: '5001' };
+    expect(await onSessionStart(moved, deps(['current']).d)).toBe(firstRunLine('http://127.0.0.1:5001/'));
+    expect(await onSessionStart(moved, deps(['current']).d)).toBeNull();
+  });
+
+  test('a start that never came up: the next session says so once, with the log, and launches a fresh start', async () => {
+    const env = tmpEnv();
+    markAddressShown(env.AGENT_INBOX_DIR, URL_4999);
+    markStartPending(env.AGENT_INBOX_DIR, Date.now() - START_GRACE_MS - 1_000);
+    const { d, launched, slept } = deps(['silent']);
+    expect(await onSessionStart(env, d)).toBe(`The Nod Board: the dashboard did not start. The log is ${path.join(env.AGENT_INBOX_DIR, 'server.log')}.`);
+    expect(launched).toEqual([['/plugin/hook.ts', '--start-server']]);
+    expect(slept()).toBe(0);
+    // The fresh start has its own grace period: a session starting right after stays quiet.
+    expect(await onSessionStart(env, deps(['silent']).d)).toBeNull();
+  });
+
+  test('a start launched moments ago by another session is not a failure, and keeps its own time', async () => {
+    const env = tmpEnv();
+    markAddressShown(env.AGENT_INBOX_DIR, URL_4999);
+    const launchedAt = Date.now() - 1_000;
+    markStartPending(env.AGENT_INBOX_DIR, launchedAt);
+    expect(await onSessionStart(env, deps(['silent']).d)).toBeNull();
+    expect(startPendingSince(env.AGENT_INBOX_DIR)).toBe(launchedAt);
+  });
+
+  test('after a reboot the server is simply started again: no line, no wait', async () => {
+    const env = tmpEnv();
+    markAddressShown(env.AGENT_INBOX_DIR, URL_4999);
+    const { d, launched, slept } = deps(['silent']);
+    expect(await onSessionStart(env, d)).toBeNull();
+    expect([launched.length, slept()]).toEqual([1, 0]);
+  });
+
+  test('another program on the port is still reported, first run or not, and nothing is recorded as shown', async () => {
+    const env = tmpEnv();
+    expect(await onSessionStart(env, deps(['foreign']).d)).toContain('port 4999 is used by another program');
+    expect(shownAddress(env.AGENT_INBOX_DIR)).toBeNull();
+  });
+});
+
+describe('/nod-board:open and /nod-board:status', () => {
+  const tmpEnv = () => {
+    const root = tmp();
+    return { HOME: root, AGENT_INBOX_DIR: path.join(root, 'inbox'), AGENT_INBOX_PORT: '4999' };
+  };
+  const deps = (states: ServerState[]) => {
+    const launched: string[][] = [];
+    let probes = 0;
+    const d: StartDeps = {
+      root: '/plugin',
+      version: '1.2.3',
+      probe: async () => states[Math.min(probes++, states.length - 1)],
+      launch: (args) => void launched.push(args),
+      sleep: async () => {},
+    };
+    return { d, launched };
+  };
+  const io = (over: Partial<BoardIo> = {}) => {
+    const opened: string[] = [];
+    const real: BoardIo = { openInBrowser: (url) => (opened.push(url), true), fetchJson: async () => ({ last_event_ts: NOW - 90_000 }), now: () => NOW, ...over };
+    return { io: real, opened };
+  };
+  const NOW = Date.parse('2026-11-15T12:00:00.000Z');
+
+  test('open with the server running: opens the address and prints it; nothing is launched', async () => {
+    const { d, launched } = deps(['current']);
+    const { io: i, opened } = io();
+    expect(await openBoard(tmpEnv(), d, i)).toEqual(['The Nod Board: opened http://127.0.0.1:4999/']);
+    expect(opened).toEqual(['http://127.0.0.1:4999/']);
+    expect(launched).toEqual([]);
+  });
+
+  test('open with the server stopped: starts it through the starter, then opens', async () => {
+    const { d, launched } = deps(['silent', 'silent', 'current']);
+    const { io: i, opened } = io();
+    expect(await openBoard(tmpEnv(), d, i)).toEqual(['The Nod Board: opened http://127.0.0.1:4999/']);
+    expect(launched.map((a) => a[0])).toEqual(['/plugin/server.ts']);
+    expect(opened).toHaveLength(1);
+  });
+
+  test('open where nothing can open a browser: prints the address to open by hand', async () => {
+    const { io: i } = io({ openInBrowser: () => false });
+    expect(await openBoard(tmpEnv(), deps(['current']).d, i)).toEqual(['The Nod Board is running at http://127.0.0.1:4999/', 'Open that address in your browser.']);
+  });
+
+  test('open when the server will not start, or another program holds the port: says so and opens nothing', async () => {
+    const env = tmpEnv();
+    const dead = io();
+    expect(await openBoard(env, deps(['silent']).d, dead.io)).toEqual([`The Nod Board: the dashboard did not start. The log is ${path.join(env.AGENT_INBOX_DIR, 'server.log')}.`]);
+    const taken = io();
+    expect((await openBoard(env, deps(['foreign']).d, taken.io))[0]).toContain('port 4999 is used by another program');
+    expect([...dead.opened, ...taken.opened]).toEqual([]);
+  });
+
+  test('status with the server running: where, version, last event, and counts from the store, never question text', async () => {
+    const env = tmpEnv();
+    const dir = env.AGENT_INBOX_DIR;
+    markCaptureStart(dir, Date.parse('2026-11-14T09:30:00.000Z'));
+    const base = { v: FORMAT_VERSION, call: 'c1', pos: 0, chip: 'Scope', title: 'A SECRET QUESTION TITLE', session: 's', project: 'p' } as const;
+    appendObservation(dir, { ...base, source: 'hook', kind: ASKED, askTs: NOW, answerTs: null });
+    appendObservation(dir, { ...base, source: 'hook', kind: 'AGREED', askTs: null, answerTs: NOW + 5 });
+    appendObservation(dir, { ...base, call: 'c2', source: 'import', kind: 'AGREED', askTs: NOW, answerTs: NOW + 5 });
+    fs.writeFileSync(path.join(dir, 'hook-errors.log'), 'one\ntwo\n');
+    const lines = await statusLines(env, deps(['current']).d, io().io);
+    expect(lines).toEqual([
+      'The Nod Board 1.2.3',
+      'running: yes, at http://127.0.0.1:4999/',
+      'last event: 1 min ago',
+      'capturing since: 2026-11-14 09:30 UTC',
+      'questions stored: 2',
+      'past sessions: imported',
+      'hook errors: 2',
+      `data folder: ${dir}`,
+    ]);
+    expect(lines.join('\n')).not.toContain('SECRET');
+  });
+
+  test('status with nothing running and nothing stored: says how to start it and what to run', async () => {
+    const lines = await statusLines(tmpEnv(), deps(['silent']).d, io().io);
+    expect(lines[1]).toBe('running: no. Start it with /nod-board:open');
+    expect(lines.join('\n')).not.toContain('last event');
+    expect(lines).toContain('questions stored: 0');
+    expect(lines).toContain('past sessions: not imported (run /nod-board:import)');
+  });
+
+  test('both commands exist as command files that run the one script and add nothing', () => {
+    for (const name of ['open', 'status']) {
+      const text = fs.readFileSync(path.join(import.meta.dir, 'commands', `${name}.md`), 'utf8');
+      expect(text).toContain(`!\`bun "\${CLAUDE_PLUGIN_ROOT}/scripts/board.ts" ${name}\``);
+      expect(text).toContain('disable-model-invocation: true');
     }
   });
 });

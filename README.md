@@ -35,15 +35,30 @@ so once and nothing is captured.
 
 ## Install
 
-```
-/plugin install nod-board --marketplace raduuuuu/the-nod-board
-```
+You need [Bun](https://bun.sh). Then, in Claude Code:
 
-or, in two steps, `/plugin marketplace add raduuuuu/the-nod-board` and then
-`/plugin install nod-board@nod-board`. The plugin is installed from the `release` branch, which
-only the release workflow writes: it holds the source plus the built dashboard, checked against
-a second build of the same commit. Start a new session afterwards and open
-http://127.0.0.1:4777/.
+1. Install the plugin:
+   ```
+   /plugin install nod-board --marketplace raduuuuu/the-nod-board
+   ```
+2. Start a new session. It starts the board and tells you, once, where it is running:
+   > The Nod Board is running at http://127.0.0.1:4777/ and keeps everything on this machine.
+   > Open it with /nod-board:open; load your past sessions with /nod-board:import.
+3. Run `/nod-board:open`, and `/nod-board:import` if you want your past sessions on the board.
+
+A session that was already open when you installed captures nothing until you run
+`/reload-plugins` in it or start a new one.
+
+| Command | What it does |
+|---|---|
+| `/nod-board:open` | starts the board when it is not running, opens it in your browser and prints the address |
+| `/nod-board:status` | whether it is running and where, the version, the last event, how many questions are stored, hook errors and the data folder; counts only |
+| `/nod-board:import` | loads your past sessions; safe to repeat |
+
+On Claude Code older than 2.1.275, install in two steps: `/plugin marketplace add
+raduuuuu/the-nod-board`, then `/plugin install nod-board@nod-board`. The plugin is installed from
+the `release` branch, which only the release workflow writes: it holds the source plus the built
+dashboard, checked against a second build of the same commit.
 
 Updates are not automatic for third-party marketplaces unless you turn that on in `/plugin`.
 To update by hand: `claude plugin update nod-board@nod-board`.
@@ -75,7 +90,8 @@ and only then tags `v<version>`. Nothing is built or published by hand.
 
 ## What is stored
 
-Two append-only files in `~/.agent-inbox` (files 0600, directory 0700):
+Two append-only files in `~/.agent-inbox` (files 0600, directory 0700), beside a few one-line
+marker files (when capture began, the address you were last told about, a pending server start):
 
 - `events.jsonl`: per hook event, the session id, working directory, event name, notification
   type, notification text (cut to 500 characters) and time. At 5 MB it is compacted to at most
@@ -141,7 +157,10 @@ refuses to write inside the repository. Delete that directory when you are done.
 | `/api/judgment` | totals, the last 7 days, sessions, the split per project and the weekly trend from `outcomes.jsonl`, as JSON |
 | `/health` | app name, version, whether a newer version wants to take over, source states |
 
-The session-start hook starts the server when none is running. After a plugin update, the next
+The session-start hook starts the server when none is running. The first session start after
+install waits up to 2 seconds for it to answer, so the line it shows names an address that
+works; no other session start waits. If a start never comes up, the next session start says so
+once and names the log. After a plugin update, the next
 session start records the version it wants; the older server reports itself stale on `/health`
 and exits, and a detached starter brings up the new one. No process is killed. If another
 program holds the port, the session start says so; set `AGENT_INBOX_PORT` to a free port.
@@ -156,8 +175,9 @@ files.
 
 ## When something looks wrong
 
-- **The dashboard does not load:** start any Claude Code session; the session-start hook starts
-  the server. The log is `~/.agent-inbox/server.log`.
+- **The dashboard does not load:** run `/nod-board:open`, or start any Claude Code session; both
+  start the server. `/nod-board:status` says whether it is running and where. The log is
+  `~/.agent-inbox/server.log`.
 - **"The dashboard has not been built":** run `bun run build` in the checkout.
 - **Nothing is captured:** `~/.agent-inbox/hook-errors.log` has one line per problem. Check that
   `bun` is on the PATH your sessions run with.

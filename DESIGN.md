@@ -79,7 +79,8 @@ show the bar only, drawn as an outline. Dots are joined only between adjacent we
 numbers are available as a table.
 
 ## Accessibility
-Landmarks: main, complementary (Needs you), contentinfo (capture health). One h1, an h2 per
+Landmarks: main, complementary (Needs you), contentinfo (capture health, which begins with the
+address the page is served from). One h1, an h2 per
 block. Every command is focusable and selected whole. Focus outline: 2px in the text color.
 Refreshes never move focus; only "server not reachable" is announced.
 

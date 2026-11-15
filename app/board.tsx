@@ -32,6 +32,8 @@ export interface BoardProps {
   /** Weeks shown in the trend: 12, or 8 on screens under 640px. */
   weeks: number;
   timeZone?: string;
+  /** Where this page is served, taken from its own location; shown in capture health. */
+  address?: string;
 }
 
 const DASH = '–';
@@ -342,7 +344,9 @@ export function Split(props: { id: string; title: string; rows: SplitRow[]; minN
 export function CaptureHealth(props: BoardProps) {
   const { inbox, judgment: j, link, now, timeZone } = props;
   const fresh = freshness(link, now, (ts) => clock(ts, timeZone), ago);
-  const items: [string, string][] = [['live since', j ? dayTime(j.live_since, timeZone) : DASH]];
+  const items: [string, string][] = [];
+  if (props.address) items.push(['address', props.address]);
+  items.push(['live since', j ? dayTime(j.live_since, timeZone) : DASH]);
   if (inbox) {
     items.push(['last event', inbox.health.last_event_ts === null ? 'none yet' : ago(now - inbox.health.last_event_ts)]);
     items.push(['hook errors', count(inbox.health.hook_errors)]);

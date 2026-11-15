@@ -538,3 +538,11 @@ describe('the build', () => {
     expect(css).not.toMatch(/box-shadow|gradient|border-radius/);
   });
 });
+
+describe('the address in capture health', () => {
+  test('shown first when the page knows it, and absent otherwise', () => {
+    const withAddress = text(render(<CaptureHealth inbox={inbox()} judgment={judgment()} link={okLink} now={NOW} weeks={12} timeZone={UTC} address="http://127.0.0.1:4777/" />));
+    expect(withAddress.startsWith('address http://127.0.0.1:4777/ live since Nov 9, 14:02')).toBe(true);
+    expect(text(render(<CaptureHealth inbox={inbox()} judgment={judgment()} link={okLink} now={NOW} weeks={12} timeZone={UTC} />))).not.toContain('address');
+  });
+});
