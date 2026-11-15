@@ -9,7 +9,9 @@
  *   |             | recent sessions (10)       |   recent sessions
  *   |             | where you overrode (10,    |   where you overrode
  *   |             |   then "Show all N")       |
- *   |             | splits: by project         |   splits
+ *   |             | [import hint, when it helps]|   [import hint]
+ *   |             | splits: skill, model,      |   splits
+ *   |             |   project, agent, product  |
  *   +-------------+----------------------------+   capture health
  *   | capture health                           |
  *   +------------------------------------------+
@@ -41,6 +43,8 @@ const TOO_FEW = 'too few';
 export const IMPORT_COMMAND = '/nod-board:import';
 /** Rows shown at once in the two lists; the overrides list offers the rest on request. */
 export const LIST_ROWS = 10;
+/** The row for questions whose skill, model or agent no source captured (attrs.ts UNKNOWN). It is never folded. */
+export const UNKNOWN_ROW = 'unknown';
 /** A split table longer than this folds its "too few" rows into one closing line. */
 export const FOLD_ABOVE = 6;
 
@@ -304,8 +308,9 @@ export interface SplitRow {
 export function Split(props: { id: string; title: string; rows: SplitRow[]; minN: number; loaded: boolean }) {
   if (props.loaded && !props.rows.length) return null;
   const fold = props.rows.length > FOLD_ABOVE;
-  const shown = fold ? props.rows.filter((r) => r.answered >= props.minN) : props.rows;
-  const folded = fold ? props.rows.filter((r) => r.answered < props.minN) : [];
+  const keep = (r: SplitRow) => r.answered >= props.minN || r.name === UNKNOWN_ROW;
+  const shown = fold ? props.rows.filter(keep) : props.rows;
+  const folded = fold ? props.rows.filter((r) => !keep(r)) : [];
   const foldedAnswers = folded.reduce((n, r) => n + r.answered, 0);
   return (
     <section aria-labelledby={props.id}>
@@ -373,6 +378,22 @@ export function CaptureHealth(props: BoardProps) {
   );
 }
 
+/** Shown only while another import would fill in who asked; one line for all the tables below it. */
+export function ImportHint(props: { judgment: JudgmentPayload | null }) {
+  const n = props.judgment?.needs_import ?? 0;
+  if (!n) return null;
+  return (
+    <div class="hint">
+      <p>
+        Model or skill is not known yet for {count(n)} {n === 1 ? 'question' : 'questions'}. To fill them in, run:
+      </p>
+      <Command text={IMPORT_COMMAND} />
+    </div>
+  );
+}
+
+const SPLIT_TITLES = { skill: 'By skill', model: 'By model', agent: 'By agent', product: 'By product' } as const;
+
 export function Board(props: BoardProps) {
   const j = props.judgment;
   const hasNumbers = !!j && j.overall.answered > 0;
@@ -385,8 +406,12 @@ export function Board(props: BoardProps) {
         {hasNumbers ? <Trend weekly={j.weekly} minN={j.min_n} weeks={props.weeks} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? <RecentSessions judgment={j} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? <Overrides judgment={j} timeZone={props.timeZone} /> : null}
+        {hasNumbers ? <ImportHint judgment={j} /> : null}
         {!j || hasNumbers ? (
           <div class="splits">
+            {(['skill', 'model'] as const).map((k) => (
+              <Split id={`${k}-h`} title={SPLIT_TITLES[k]} loaded={!!j} minN={j?.min_n ?? 0} rows={j?.splits[k] ?? []} />
+            ))}
             <Split
               id="proj-h"
               title="By project"
@@ -394,6 +419,9 @@ export function Board(props: BoardProps) {
               minN={j?.min_n ?? 0}
               rows={(j?.projects ?? []).map((p) => ({ name: p.project, agreed: p.agreed, answered: p.answered, medianMs: p.medianMs, timed: p.timed }))}
             />
+            {(['agent', 'product'] as const).map((k) => (
+              <Split id={`${k}-h`} title={SPLIT_TITLES[k]} loaded={!!j} minN={j?.min_n ?? 0} rows={j?.splits[k] ?? []} />
+            ))}
           </div>
         ) : null}
       </main>

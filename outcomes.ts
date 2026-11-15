@@ -47,6 +47,7 @@
  */
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { CLAUDE_CODE } from './attrs';
 import {
   CONFLICT,
   OUTCOMES,
@@ -74,7 +75,9 @@ export const ATTRIBUTES = ['model', 'skill', 'agent', 'product'] as const;
 export type Attribute = (typeof ATTRIBUTES)[number];
 export const ATTRIBUTE_MAX = 80;
 /** Every question stored before products were recorded came from Claude Code. */
-export const DEFAULT_PRODUCT = 'Claude Code';
+export const DEFAULT_PRODUCT = CLAUDE_CODE;
+/** Holds the time of the last import that read who asked; see needsImport in BoardData. */
+export const IMPORT_RAN_FILE = 'import-ran';
 /** An unanswered question whose session left no later trace for this long is taken as dismissed. */
 export const SESSION_GONE_MS = 7 * 24 * 3_600_000;
 
@@ -370,6 +373,22 @@ export interface BoardData {
   sources: { hook: boolean; import: boolean };
   /** Dismissals that were inferred from the session moving on, not observed. */
   inferredDismissed: number;
+  /**
+   * Claude Code questions whose model or skill is not known and that an import could fill: those
+   * asked after the last import, or all of them when no import has read who asked yet. A question
+   * an import already looked at and could not fill is not counted, so the hint ends.
+   */
+  needsImport: number;
+}
+
+/** When the last import that reads who asked ran, or null. */
+export function lastImportAt(dir: string): number | null {
+  try {
+    const n = Number(fs.readFileSync(path.join(dir, IMPORT_RAN_FILE), 'utf8').trim());
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
 }
 
 export function boardData(dir: string, opts: ReconcileOptions): BoardData {
@@ -385,7 +404,14 @@ export function boardData(dir: string, opts: ReconcileOptions): BoardData {
       import: stored.observations.some((o) => o.source === 'import'),
     },
     inferredDismissed: rows.filter((r) => r.inferred && r.outcome === 'DISMISSED').length,
+    needsImport: needsImport(rows, lastImportAt(dir)),
   };
+}
+
+function needsImport(rows: readonly QuestionRow[], importedAt: number | null): number {
+  return rows.filter(
+    (r) => productOf(r) === CLAUDE_CODE && (r.model === undefined || r.skill === undefined) && (importedAt === null || (r.askTs !== null && r.askTs > importedAt)),
+  ).length;
 }
 
 // ---------------------------------------------------------------- import of past sessions
@@ -411,6 +437,7 @@ export function observationsFromCalls(calls: readonly MergedCall[]): Observation
         askTs: call.ts,
         // Only an answer or a recorded rejection has a time; an excluded question in a rejected call has none.
         answerTs: call.result?.kind === 'answers' || kind === 'DISMISSED' ? call.resultTs : null,
+        ...call.who,
       });
     });
   }
@@ -445,11 +472,16 @@ export async function importHistory(dir: string, transcriptsDir: string, home: s
     }
   }
   const observations = observationsFromCalls(mergeCalls(files, home));
+  const startedAt = Date.now();
+  const added = appendNew(dir, observations);
+  // Recorded after the store was written: questions asked before this moment have now been looked at.
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(dir, IMPORT_RAN_FILE), `${startedAt}\n`, { mode: 0o600 });
   return {
     files: files.length,
     skipped,
     unrecognizedFiles: files.filter((f) => f.rows.unrecognized > 0).length,
     questions: observations.length,
-    added: appendNew(dir, observations),
+    added,
   };
 }

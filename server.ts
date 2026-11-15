@@ -90,6 +90,8 @@ export function judgmentJson(inbox: Inbox, version: string, now: number) {
     live_since: captureSince(inbox.cfg.dir),
     ...board.totals,
     inferred_dismissed: board.inferredDismissed,
+    /** Questions whose model or skill another import could fill; 0 hides the hint. */
+    needs_import: board.needsImport,
     weekly: board.weekly,
     capture: { unreadable_lines: board.unreadable, sources: board.sources },
   };

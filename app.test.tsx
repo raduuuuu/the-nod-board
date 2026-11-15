@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { render } from 'preact-render-to-string';
-import { Acceptance, Board, CaptureHealth, FOLD_ABOVE, IMPORT_COMMAND, LIST_ROWS, NeedsYou, Overrides, RecentSessions, Split, type BoardProps, type SplitRow } from './app/board';
+import { Acceptance, Board, CaptureHealth, FOLD_ABOVE, IMPORT_COMMAND, ImportHint, LIST_ROWS, NeedsYou, Overrides, RecentSessions, Split, type BoardProps, type SplitRow } from './app/board';
 import { ago, count, dayTime, duration, percent, share } from './app/format';
 import { FAILURES_BEFORE_UNREACHABLE, SLOW_FIRST_MS, freshness, initialLink, onFailure, onSuccess } from './app/poll';
 import { Trend, type WeekPoint } from './app/trend';
@@ -52,6 +52,15 @@ const judgment = (extra: Partial<JudgmentPayload> = {}): JudgmentPayload => ({
   questions: 1545,
   timing: { n: 1362, medianMs: 41_654, fast: 274 },
   recent: { agreed: 124, answered: 138 },
+  splits: {
+    skill: [
+      { name: 'plan-review', agreed: 60, answered: 62, medianMs: 12_000, timed: 60 },
+      { name: 'no skill', agreed: 30, answered: 38, medianMs: 55_000, timed: 30 },
+    ],
+    model: [{ name: 'unknown', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 }],
+    agent: [{ name: 'main agent', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 }],
+    product: [{ name: 'Claude Code', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 }],
+  },
   projects: [
     { project: 'thing', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 },
     { project: 'tiny', agreed: 2, answered: 2, medianMs: 9_000, timed: 2 },
@@ -62,6 +71,7 @@ const judgment = (extra: Partial<JudgmentPayload> = {}): JudgmentPayload => ({
     { ts: NOW - 7_200_000, project: 'thing', title: 'Which name?', typed: true },
   ],
   inferred_dismissed: 0,
+  needs_import: 0,
   weekly: weeks([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [174, 199], [3, 4], [329, 349], [353, 371], [293, 324], [124, 138]]),
   capture: { unreadable_lines: 0, sources: { hook: true, import: true } },
   ...extra,
@@ -125,7 +135,7 @@ describe('first paint (no data yet)', () => {
   const html = render(<Board inbox={null} judgment={null} link={initialLink(NOW)} now={NOW} weeks={12} timeZone={UTC} />);
 
   test('the final frame is already there: every heading, a dash for the number, nothing that spins', () => {
-    for (const heading of ['The Nod Board', 'Needs you', 'Recommendations taken', 'Recent sessions', 'Where you overrode', 'By project']) expect(html).toContain(heading);
+    for (const heading of ['The Nod Board', 'Needs you', 'Recommendations taken', 'Recent sessions', 'Where you overrode', 'By skill', 'By model', 'By project', 'By agent', 'By product']) expect(html).toContain(heading);
     expect(html).toContain('<span class="number">–</span>');
     expect(text(html)).toContain('live since –');
     for (const moving of ['spinner', 'skeleton', 'loading', 'animate']) expect(html.toLowerCase()).not.toContain(moving);
@@ -386,6 +396,38 @@ describe('a split table', () => {
   });
 });
 
+describe('the splits by who asked', () => {
+  test('a row per skill with its share, count and answer time; a split with one row is still shown', () => {
+    const html = board();
+    expect(html).toContain('<th scope="row">plan-review</th><td class="num">97%</td><td class="num">62</td><td class="num">12 s</td>');
+    expect(html).toContain('<th scope="row">no skill</th><td class="num">79%</td><td class="num">38</td><td class="num">55 s</td>');
+    expect(html).toContain('<th scope="row">main agent</th>');
+    expect(html).toContain('<th scope="row">Claude Code</th>');
+  });
+
+  test('the unknown row is never folded away, however long the table', () => {
+    const rows: SplitRow[] = [
+      ...Array.from({ length: 7 }, (_, i) => ({ name: `skill-${i}`, agreed: 9, answered: 10, medianMs: 1000, timed: 10 })),
+      { name: 'tiny', agreed: 1, answered: 1, medianMs: null, timed: 0 },
+      { name: 'unknown', agreed: 2, answered: 2, medianMs: null, timed: 0 },
+    ];
+    const html = render(<Split id="x-h" title="By skill" rows={rows} minN={MIN_N} loaded />);
+    expect(html).toContain('<th scope="row">unknown</th><td class="num">too few</td><td class="num">2</td>');
+    expect(html).not.toContain('<th scope="row">tiny</th>');
+    expect(text(html)).toContain('1 more with too few answers (1 answer in total)');
+  });
+
+  test('the import hint: one line above the tables with the count and the command, only while an import would help', () => {
+    expect(render(<ImportHint judgment={judgment()} />)).toBe('');
+    expect(text(render(<ImportHint judgment={judgment({ needs_import: 1584 })} />))).toBe(`Model or skill is not known yet for 1,584 questions. To fill them in, run: ${IMPORT_COMMAND}`);
+    expect(text(render(<ImportHint judgment={judgment({ needs_import: 1 })} />))).toContain('for 1 question.');
+    const page = board({ judgment: judgment({ needs_import: 3 }) });
+    expect(page.indexOf('not known yet')).toBeGreaterThan(page.indexOf('Where you overrode'));
+    expect(page.indexOf('not known yet')).toBeLessThan(page.indexOf('By skill'));
+    expect((page.match(/not known yet/g) ?? []).length).toBe(1);
+  });
+});
+
 describe('capture health', () => {
   const health = (extra: Partial<BoardProps> = {}) => text(render(<CaptureHealth inbox={inbox()} judgment={judgment()} link={okLink} now={NOW} weeks={12} timeZone={UTC} {...extra} />));
 
@@ -418,7 +460,7 @@ describe('the whole page', () => {
     expect((html.match(/<main/g) ?? []).length).toBe(1);
     expect(html).toContain('<aside class="needs" aria-labelledby="needs-h">');
     expect(html).toContain('<footer aria-label="Capture health">');
-    const order = ['Needs you', 'Recommendations taken', 'Trend, last 12 weeks', 'Recent sessions', 'Where you overrode', 'By project', 'live since'].map((s) => html.indexOf(s));
+    const order = ['Needs you', 'Recommendations taken', 'Trend, last 12 weeks', 'Recent sessions', 'Where you overrode', 'By skill', 'By model', 'By project', 'By agent', 'By product', 'live since'].map((s) => html.indexOf(s));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     // Every heading that labels a region exists.

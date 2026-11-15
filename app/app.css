@@ -70,6 +70,8 @@ summary{cursor:pointer;font-size:var(--label);color:var(--muted);min-height:44px
 .more[open] .closed,.more:not([open]) .open{display:none}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .folded{margin-top:var(--s2)}
+.hint{margin-top:var(--s8);padding-top:var(--s3);border-top:1px solid var(--line)}
+.hint p{margin:0}
 
 /* Tables */
 table{border-collapse:collapse;width:100%}

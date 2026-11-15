@@ -31,6 +31,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { CLAUDE_CODE, UNKNOWN, fromTranscript, type Who } from './attrs';
 
 export const OUTCOMES = [
   'AGREED',
@@ -80,6 +81,8 @@ export interface LineCalls {
   cwd: string | null;
   uses: { id: string; questions: QuestionDef[] }[];
   results: { id: string; result: CallResult }[];
+  /** Who asked, when this line is one Claude Code attributes (attrs.ts); absent otherwise. */
+  who?: Who;
 }
 
 const TOOL = 'AskUserQuestion';
@@ -149,6 +152,10 @@ export function readCalls(v: unknown): LineCalls | null {
       out.results.push({ id: b.tool_use_id, result: toResult(b, v.toolUseResult) });
     }
   }
+  if (out.uses.length) {
+    const who = fromTranscript(v);
+    if (Object.keys(who).length) out.who = who;
+  }
   return out;
 }
 
@@ -180,6 +187,8 @@ export interface FileCall {
   questions: QuestionDef[];
   result: CallResult | null;
   resultTs: number | null;
+  /** Who asked, from the first copy of the asking line that says so. */
+  who?: Who;
 }
 
 export interface FileRows {
@@ -232,11 +241,14 @@ export async function scanChunks(chunks: AsyncIterable<Uint8Array>): Promise<Fil
     for (const u of lc.uses) {
       const call = calls.get(u.id);
       if (!call) {
-        calls.set(u.id, { id: u.id, useTs: lc.ts, cwd: lc.cwd, questions: u.questions, result: null, resultTs: null });
+        const fresh: FileCall = { id: u.id, useTs: lc.ts, cwd: lc.cwd, questions: u.questions, result: null, resultTs: null };
+        if (lc.who) fresh.who = lc.who;
+        calls.set(u.id, fresh);
         pending.add(u.id);
       } else {
         if (call.useTs === null) call.useTs = lc.ts;
         if (call.cwd === null) call.cwd = lc.cwd;
+        if (!call.who && lc.who) call.who = lc.who;
       }
     }
     for (const r of lc.results) {
@@ -294,6 +306,8 @@ export interface MergedCall {
   resultTs: number | null;
   /** Result timestamp minus tool_use timestamp, for answered calls with both. */
   elapsedMs: number | null;
+  /** Who asked, from the earliest copy that says so. */
+  who?: Who;
 }
 
 const nullsLast = (a: number | null, b: number | null) =>
@@ -343,7 +357,9 @@ export function mergeCalls(files: readonly { ref: FileRef; rows: FileRows }[], h
       result?.kind === 'answers' && from && from.resultTs !== null && useTs !== null && from.resultTs >= useTs
         ? from.resultTs - useTs
         : null;
+    const who = copies.find((c) => c.call.who)?.call.who;
     out.push({
+      ...(who ? { who } : {}),
       id,
       // The working directory names the project as live capture does; the transcript folder is the fallback.
       project: projectOfCwd(copies.find((c) => c.call.cwd)?.call.cwd, home) ?? owner.ref.project,
@@ -379,6 +395,15 @@ export interface ProjectRow extends Rate {
   /** Question prompts with a measured answer time behind medianMs. */
   timed: number;
 }
+/** The splits by who asked, in the order the page shows them. */
+export const SPLIT_KEYS = ['skill', 'model', 'agent', 'product'] as const;
+export type SplitKey = (typeof SPLIT_KEYS)[number];
+export interface SplitRow extends Rate {
+  /** The skill, model, agent or product; UNKNOWN when no source captured it. */
+  name: string;
+  medianMs: number | null;
+  timed: number;
+}
 export interface SessionRow extends Rate {
   session: string;
   project: string;
@@ -403,6 +428,8 @@ export interface Totals {
   timing: Timing;
   /** Answered in the last 7 days (RECENT_WINDOW_MS); zeros when aggregate() was not told the time. */
   recent: Rate;
+  /** The share per skill, model, agent and product. Largest first; the UNKNOWN row last. */
+  splits: Record<SplitKey, SplitRow[]>;
   projects: ProjectRow[];
   sessions: SessionRow[];
   overrides: OverrideRow[];
@@ -499,6 +526,9 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
   const recent = bucket();
   const recentFrom = opts.now === undefined ? Infinity : opts.now - RECENT_WINDOW_MS;
   const projects = new Map<string, Bucket>();
+  const splits = Object.fromEntries(SPLIT_KEYS.map((k) => [k, new Map<string, Bucket>()])) as Record<SplitKey, Map<string, Bucket>>;
+  // A question from before products were recorded came from Claude Code; any other missing value is unknown.
+  const valueOf = (row: QuestionRow, key: SplitKey) => row[key] ?? (key === 'product' ? CLAUDE_CODE : UNKNOWN);
   const sessions = new Map<string, Bucket & { session: string; project: string }>();
   const overrides: OverrideRow[] = [];
   const byCall = new Map<string, QuestionRow[]>();
@@ -521,7 +551,9 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
       if (!ANSWERED.has(row.outcome)) continue;
       counted = true;
       if (!sess) sessions.set(sessionKey, (sess = { ...bucket(), session: first.session, project: first.project }));
-      for (const b of isRecent ? [overall, bump(projects, row.project), sess, recent] : [overall, bump(projects, row.project), sess]) {
+      const buckets = [overall, bump(projects, row.project), sess, ...SPLIT_KEYS.map((k) => bump(splits[k], valueOf(row, k)))];
+      if (isRecent) buckets.push(recent);
+      for (const b of buckets) {
         b.answered++;
         if (row.outcome === 'AGREED') b.agreed++;
       }
@@ -536,6 +568,8 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
       if (counted) {
         bump(projects, first.project).elapsed.push(elapsed);
         sess?.elapsed.push(elapsed);
+        // One prompt, one asker: the timing goes to the first question's skill, model, agent and product.
+        for (const k of SPLIT_KEYS) bump(splits[k], valueOf(first, k)).elapsed.push(elapsed);
       }
     }
   }
@@ -555,6 +589,14 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
       fast: overall.elapsed.filter((ms) => ms < FAST_ANSWER_MS).length,
     },
     recent: { agreed: recent.agreed, answered: recent.answered },
+    splits: Object.fromEntries(
+      SPLIT_KEYS.map((k) => [
+        k,
+        [...splits[k]]
+          .map(([name, b]) => ({ name, agreed: b.agreed, answered: b.answered, medianMs: median(b.elapsed), timed: b.elapsed.length }))
+          .sort((x, y) => Number(x.name === UNKNOWN) - Number(y.name === UNKNOWN) || bySize(x, y) || x.name.localeCompare(y.name)),
+      ]),
+    ) as Record<SplitKey, SplitRow[]>,
     projects: [...projects]
       .map(([project, b]) => ({ project, agreed: b.agreed, answered: b.answered, medianMs: median(b.elapsed), timed: b.elapsed.length }))
       .sort((a, b) => bySize(a, b) || a.project.localeCompare(b.project)),

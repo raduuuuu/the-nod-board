@@ -9,7 +9,7 @@ you nod along with the agent's recommendation. Everything stays on your machine.
   "(Recommended)" and you answered, the share where you picked that option. Under it: the median
   time you took to answer, the share you answered in under 15 seconds, and the share for the last
   7 days. Then a 12-week trend, your recent sessions, the questions where you chose otherwise,
-  and the share per project.
+  and the share split by skill, model, project, agent and product.
 
 A high share does not by itself mean the agent is right: it is the same number a reviewer who
 stopped reading would produce. Read it next to the answer times.
@@ -23,6 +23,8 @@ the `AGENT_INBOX_*` environment variables keep their old names for now.
 Claude Code session ── hooks/hooks.json ──> hook.ts (run by Bun)
      session events  ──> ~/.agent-inbox/events.jsonl     what needs you
      question asked / answered ──> outcomes.jsonl        one line per observation
+     skill started, command typed, turn ended, model switched
+                     ──> attrs/                          who is asking right now
      session start   ──> starts the local server when none is running
 
 /nod-board:import ──> reads past transcripts once ──> outcomes.jsonl
@@ -97,11 +99,16 @@ marker files (when capture began, the address you were last told about, a pendin
   type, notification text (cut to 500 characters) and time. At 5 MB it is compacted to at most
   two events per live session.
 - `outcomes.jsonl`: per question, its call id and position, the outcome, the label the agent
-  gave it, its first line (cut to 120 characters), session, project and two timestamps. It is
-  never compacted; it is the history.
+  gave it, its first line (cut to 120 characters), session, project and two timestamps, and who
+  asked when that is known: the model id, the skill or command name, the agent type and the
+  product (names only, each cut to 80 characters). It is never compacted; it is the history.
+
+While a session runs, `attrs/<session id>/` holds the name of the skill each of its agents is in
+and the session's model, one short file each. A session's folder is removed when the session
+ends, or after 7 days.
 
 Never stored: option text, the answer you picked or typed, prompts, tool input or output.
-Transcripts are read only when you run the import, in memory. Nothing leaves the machine: the
+Transcripts are read only when you run the import, in memory; the hook never opens them. Nothing leaves the machine: the
 server binds 127.0.0.1, rejects any Host header other than `127.0.0.1:<port>` or
 `localhost:<port>`, and has no route that changes anything.
 
@@ -135,6 +142,15 @@ Per question of an AskUserQuestion call, the first rule that matches:
 - "Last 7 days" is the 168 hours before now, by the time of the answer.
 - A session is dated by its latest answer.
 - Projects are named after the last segment of the session's working directory.
+- Who asked: the skill is the one the agent started or the command you typed, until the turn
+  ends; "no skill" means the question was asked outside any. The agent is the subagent type, or
+  "main agent". The model is not in the hook payload of a question (Claude Code 2.1.325), so a
+  question captured live shows "unknown" under By model until `/nod-board:import` reads it from
+  the session file; the page says when an import would fill something in. When the hook and an
+  import disagree, the import wins for skill and model (it is Claude Code's own record) and the
+  hook wins for agent and product.
+- Questions stored by 0.1.1 or earlier have no skill, model or agent until you run the import again, and
+  stay "unknown" where their session file no longer exists.
 
 The answer is read only from the structured payload, never by matching text. When Claude Code
 changes that payload, the dashboard says answers could not be read instead of drifting. To
@@ -154,7 +170,7 @@ refuses to write inside the repository. Delete that directory when you are done.
 |---|---|
 | `/` | the dashboard app (`dist/`, built by `scripts/build.ts`) |
 | `/api/inbox` | sessions that need you, as JSON |
-| `/api/judgment` | totals, the last 7 days, sessions, the split per project and the weekly trend from `outcomes.jsonl`, as JSON |
+| `/api/judgment` | totals, the last 7 days, sessions, the splits (skill, model, project, agent, product) and the weekly trend from `outcomes.jsonl`, as JSON |
 | `/health` | app name, version, whether a newer version wants to take over, source states |
 
 The session-start hook starts the server when none is running. The first session start after

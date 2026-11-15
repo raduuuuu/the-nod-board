@@ -3,10 +3,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  ATTR_EVENTS,
   FIRST_RUN_WAIT_MS,
   PROBE_TIMEOUT_MS,
   QUESTION_TOOL,
   SESSION_EVENTS,
+  SKILL_TOOL,
   START_GRACE_MS,
   firstRunLine,
   onSessionStart,
@@ -34,7 +36,7 @@ import {
   startPendingSince,
 } from './inbox';
 import { aggregate } from './judgment';
-import { ASKED, FORMAT_VERSION, OUTCOMES_FILE, appendObservation, readObservations, readQuestions } from './outcomes';
+import { ASKED, ATTRIBUTES, ATTRIBUTE_MAX, FORMAT_VERSION, OUTCOMES_FILE, appendObservation, readObservations, readQuestions } from './outcomes';
 import { openBoard, statusLines, type BoardIo } from './scripts/board';
 
 const REPO = import.meta.dir;
@@ -214,7 +216,11 @@ describe('hook.ts questions, from recorded payloads', () => {
     }
     for (const line of text.split('\n').filter(Boolean)) {
       const o = JSON.parse(line);
-      expect(Object.keys(o)).toEqual(['v', 'source', 'call', 'pos', 'kind', 'chip', 'title', 'session', 'project', 'askTs', 'answerTs']);
+      const keys = Object.keys(o);
+      expect(keys.slice(0, 11)).toEqual(['v', 'source', 'call', 'pos', 'kind', 'chip', 'title', 'session', 'project', 'askTs', 'answerTs']);
+      // After those, only the attributes saying who asked, in their fixed order, and only short names.
+      expect(keys.slice(11)).toEqual(ATTRIBUTES.filter((k) => k in o));
+      for (const k of keys.slice(11)) expect(typeof o[k] === 'string' && o[k].length <= ATTRIBUTE_MAX).toBe(true);
       expect(Object.values(o)).not.toContain('my own answer');
       expect(Object.values(o)).not.toContain('Green');
     }
@@ -262,12 +268,12 @@ describe('plugin files', () => {
   });
 
   test('every event the hook handles is registered, and nothing else', () => {
-    expect(Object.keys(hooks).sort()).toEqual([...SESSION_EVENTS, 'PreToolUse', 'SessionStart'].sort());
+    expect(Object.keys(hooks).sort()).toEqual([...SESSION_EVENTS, ...ATTR_EVENTS, 'PreToolUse', 'SessionStart'].sort());
     for (const [event, entries] of Object.entries(hooks)) {
       expect(entries).toHaveLength(1);
       expect(entries[0].hooks).toEqual([{ type: 'command', command: `"\${CLAUDE_PLUGIN_ROOT}/hooks/run.sh" ${event}`, timeout: 5 }]);
-      // Only the question hook is narrowed; session events must fire for every tool.
-      expect(entries[0].matcher).toBe(event === 'PreToolUse' ? QUESTION_TOOL : undefined);
+      // Only the before-tool hook is narrowed, to the two tools it acts on; session events must fire for every tool.
+      expect(entries[0].matcher).toBe(event === 'PreToolUse' ? `${QUESTION_TOOL}|${SKILL_TOOL}` : undefined);
     }
   });
 
@@ -645,3 +651,69 @@ describe('/nod-board:open and /nod-board:status', () => {
     }
   });
 });
+
+/**
+ * Payloads in the shapes a probe measured on Claude Code 2.1.325 (field names and nesting), with
+ * made-up questions. PostModelSwitch is from the documentation: the probe could not trigger it.
+ */
+describe('who asked, through the real hook', () => {
+  const lines: Record<string, unknown>[] = fs
+    .readFileSync(path.join(FIX, 'hook-attr-payloads.jsonl'), 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l));
+  const replay = () => {
+    const root = tmp();
+    const dir = path.join(root, 'inbox');
+    const env = { PATH: '/usr/bin:/bin', HOME: root, AGENT_INBOX_DIR: dir, AGENT_INBOX_PORT: '4998' };
+    const out: string[] = [];
+    for (const l of lines) {
+      const r = Bun.spawnSync([process.execPath, HOOK], { stdin: Buffer.from(JSON.stringify(l)), env });
+      expect(r.exitCode).toBe(0);
+      if (l.hook_event_name !== 'SessionStart') out.push(r.stdout.toString());
+    }
+    return { dir, stdout: out.join('') };
+  };
+
+  test('each question is stored with the skill, agent and model that were current when it was asked', () => {
+    const { dir } = replay();
+    const asked = readObservations(dir).observations.filter((o) => o.kind === ASKED);
+    expect(asked.map((o) => [o.call, o.skill, o.agent, o.model])).toEqual([
+      ['toolu_attr_1', 'hello', 'main agent', undefined], // inside a typed command
+      ['toolu_attr_2', 'no skill', 'main agent', undefined], // the turn ended, so the command no longer owns it
+      ['toolu_attr_3', 'probe-skill', 'main agent', undefined], // after the agent started a skill
+      ['toolu_attr_4', 'no skill', 'Explore', undefined], // a subagent has its own skill, here none
+      ['toolu_attr_5', 'probe-skill', 'main agent', 'claude-test-2'], // after a model switch
+    ]);
+  });
+
+  test('the answer carries none of it, and the row keeps what was known at the moment of asking', () => {
+    const { dir } = replay();
+    const answer = readObservations(dir).observations.find((o) => o.call === 'toolu_attr_1' && o.kind === 'AGREED')!;
+    expect(ATTRIBUTES.filter((k) => k in answer)).toEqual([]);
+    const row = readQuestions(dir, { now: Date.now() }).rows.find((r) => r.call === 'toolu_attr_1')!;
+    expect([row.outcome, row.skill, row.agent]).toEqual(['AGREED', 'hello', 'main agent']);
+  });
+
+  test('the new events print nothing, leave no session-event line, and the session end removes the state', () => {
+    const { dir, stdout } = replay();
+    expect(stdout).toBe('');
+    const events = fs.readFileSync(path.join(dir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map((l) => JSON.parse(l).hook_event_name);
+    for (const e of ATTR_EVENTS) expect(events).not.toContain(e);
+    expect(fs.existsSync(path.join(dir, 'attrs', 'sess-attr'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'hook-errors.log'))).toBe(false);
+  });
+
+  test('an event name this version has never heard of is ignored: exit 0, nothing printed, nothing stored', () => {
+    const r = runHook(JSON.stringify({ session_id: 's', hook_event_name: 'SomethingFromTheFuture', cwd: '/tmp', surprise: { nested: true } }));
+    expect([r.code, r.stdout, r.events, r.outcomes, r.errors]).toEqual([0, '', '', '', '']);
+  });
+
+  test('every registered event is one the hook has a use for', () => {
+    const registered = Object.keys(JSON.parse(fs.readFileSync(path.join(REPO, 'hooks', 'hooks.json'), 'utf8')).hooks);
+    const handled = new Set([...SESSION_EVENTS, ...ATTR_EVENTS, 'PreToolUse', 'SessionStart']);
+    expect(registered.filter((e) => !handled.has(e))).toEqual([]);
+    expect([...handled].filter((e) => !registered.includes(e))).toEqual([]);
+  });
+});
+

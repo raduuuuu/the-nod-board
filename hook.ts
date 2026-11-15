@@ -5,7 +5,9 @@
  *   session events (Notification, PostToolUse, PostToolUseFailure, Stop, UserPromptSubmit, SessionEnd)
  *       -> one projected line in <dir>/events.jsonl: session_id, cwd, hook_event_name,
  *          notification_type, message (cut to 500 characters), ts. Nothing else from the payload.
- *   AskUserQuestion, PreToolUse  -> one ASKED observation per question in <dir>/outcomes.jsonl
+ *   AskUserQuestion, PreToolUse  -> one ASKED observation per question in <dir>/outcomes.jsonl,
+ *          carrying who asked: the agent, and the skill and model when known (attrs.ts)
+ *   skill, command, model and turn-end events -> what attrs.ts needs to know who is asking
  *   AskUserQuestion, PostToolUse -> one classified observation per question (outcomes.ts decides
  *          what a line may hold: never option text, never the answer)
  *   SessionStart -> make sure the local server is running and current (see onSessionStart)
@@ -17,6 +19,7 @@
  * a dismissed question fires PreToolUse and nothing after it).
  */
 import { spawn } from 'node:child_process';
+import { at as whoAt, note as noteAttrs, type AttrEvent } from './attrs';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -38,6 +41,9 @@ import { classify, projectOfCwd, titleOf, toQuestions, type CallResult, type Que
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
 export const QUESTION_TOOL = 'AskUserQuestion';
+export const SKILL_TOOL = 'Skill';
+/** Events registered only so attrs.ts learns who is asking; they leave no line in events.jsonl. */
+export const ATTR_EVENTS: readonly string[] = ['UserPromptExpansion', 'PostModelSwitch', 'SubagentStop'];
 export const SESSION_EVENTS: ReadonlySet<string> = new Set([
   'Notification',
   'PostToolUse',
@@ -60,6 +66,8 @@ export interface HookPayload {
   questions: QuestionDef[] | null;
   /** The call's result on PostToolUse; null before the answer. */
   result: CallResult | null;
+  /** The fields that say who is acting; attrs.ts decides what they mean. */
+  who: AttrEvent;
 }
 
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null);
@@ -86,7 +94,18 @@ export function readHookPayload(v: unknown): HookPayload | null {
       } else result = { kind: 'undecoded' };
     }
   }
+  const who: AttrEvent = {
+    event,
+    sessionId,
+    agentId: str(v.agent_id),
+    agentType: str(v.agent_type),
+    toolName,
+    skill: isObject(v.tool_input) ? str(v.tool_input.skill) : null,
+    commandName: str(v.command_name),
+    model: str(event === 'PostModelSwitch' ? v.to_model : v.model),
+  };
   return {
+    who,
     event,
     sessionId,
     cwd: str(v.cwd),
@@ -113,7 +132,7 @@ export function sessionEventLine(p: HookPayload, now: number): string | null {
 }
 
 /** What a question hook stores: ASKED before the answer, the classified outcome after it. */
-export function questionObservations(p: HookPayload, now: number, home: string): Observation[] {
+export function questionObservations(p: HookPayload, now: number, home: string, dir?: string): Observation[] {
   if (p.toolName !== QUESTION_TOOL || !p.toolUseId) return [];
   if (p.event !== 'PreToolUse' && p.event !== 'PostToolUse') return [];
   const base = {
@@ -128,8 +147,11 @@ export function questionObservations(p: HookPayload, now: number, home: string):
     if (p.event !== 'PostToolUse') return [];
     return [{ ...base, pos: 0, kind: 'UNDECODED', chip: '', title: '', askTs: null, answerTs: now }];
   }
+  // Who asked is fixed when the question is asked; the answer's observation carries none of it.
+  const who = p.event === 'PreToolUse' && dir ? whoAt(dir, p.who) : {};
   return p.questions.map((q, pos) => ({
     ...base,
+    ...who,
     pos,
     kind: p.event === 'PreToolUse' ? ASKED : classify(q, p.result),
     chip: q.header,
@@ -166,12 +188,18 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
     return null;
   }
   try {
+    // First, so a skill started in this very event is known to a question that follows.
+    noteAttrs(dir, payload.who, now);
+  } catch (err) {
+    logError(dir, `could not record who is asking: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
+  }
+  try {
     const line = sessionEventLine(payload, now);
     if (line) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       fs.appendFileSync(path.join(dir, 'events.jsonl'), line + '\n', { mode: 0o600 });
     }
-    for (const obs of questionObservations(payload, now, env.HOME || os.homedir())) appendObservation(dir, obs);
+    for (const obs of questionObservations(payload, now, env.HOME || os.homedir(), dir)) appendObservation(dir, obs);
   } catch (err) {
     // Path and error class only: nothing from the payload reaches the log.
     logError(dir, `could not write to ${dir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);

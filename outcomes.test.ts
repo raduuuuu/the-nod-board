@@ -10,6 +10,7 @@ import {
   ATTRIBUTE_MAX,
   DEFAULT_PRODUCT,
   FORMAT_VERSION,
+  IMPORT_RAN_FILE,
   OUTCOMES_FILE,
   SESSION_GONE_MS,
   appendNew,
@@ -629,3 +630,114 @@ describe('the last 7 days, answer times and timed prompts, through the store', (
     expect(aggregate(rows).recent).toEqual({ agreed: 0, answered: 0 });
   });
 });
+
+describe('the splits by who asked, through the store', () => {
+  const AT = Date.parse('2026-11-20T12:00:00.000Z');
+  const answeredBy = (call: string, who: Partial<Observation>, kind: ObservedKind = 'AGREED', wait = 20_000): Observation[] => [
+    obs(ASKED, { call, askTs: AT - 60_000, ...who }),
+    obs(kind, { call, answerTs: AT - 60_000 + wait }),
+  ];
+  const totals = (observations: Observation[]) => {
+    const dir = freshDir();
+    for (const o of observations) appendObservation(dir, o);
+    return boardData(dir, { now: AT }).totals;
+  };
+
+  test('each split counts every answered question once; the unknown row is last; old history is Claude Code', () => {
+    const t = totals([
+      ...answeredBy('a', { skill: 'plan-review', model: 'm-1', agent: 'main agent' }),
+      ...answeredBy('b', { skill: 'plan-review', model: 'm-2', agent: 'main agent' }, 'OVERRODE_OPTION'),
+      ...answeredBy('c', { skill: 'no skill', agent: 'Explore' }),
+      ...answeredBy('d', {}), // stored before anyone recorded who asked
+      ...answeredBy('e', { product: 'Codex CLI' }),
+    ]);
+    const names = (key: keyof typeof t.splits) => t.splits[key].map((r) => [r.name, r.agreed, r.answered]);
+    expect(names('skill')).toEqual([['plan-review', 1, 2], ['no skill', 1, 1], ['unknown', 2, 2]]);
+    expect(names('model')).toEqual([['m-1', 1, 1], ['m-2', 0, 1], ['unknown', 3, 3]]);
+    expect(names('agent')).toEqual([['main agent', 1, 2], ['Explore', 1, 1], ['unknown', 2, 2]]);
+    expect(names('product')).toEqual([['Claude Code', 3, 4], ['Codex CLI', 1, 1]]);
+    for (const key of ['skill', 'model', 'agent', 'product'] as const) {
+      expect(t.splits[key].reduce((n, r) => n + r.answered, 0)).toBe(t.overall.answered);
+    }
+  });
+
+  test('a split row has the median answer time of its prompts and how many were timed', () => {
+    const t = totals([...answeredBy('a', { skill: 's' }, 'AGREED', 10_000), ...answeredBy('b', { skill: 's' }, 'AGREED', 30_000)]);
+    expect(t.splits.skill).toEqual([{ name: 's', agreed: 2, answered: 2, medianMs: 20_000, timed: 2 }]);
+  });
+});
+
+describe('who asked, from past sessions', () => {
+  const HOME_DIR = '/Users/someone';
+  const iso = (ms: number) => new Date(T0 + ms).toISOString();
+  const q = { question: 'Ship it?', header: 'Approach', options: [{ label: 'Yes (recommended)', description: 'd' }, { label: 'No', description: 'd' }], multiSelect: false };
+  const use = (id: string, ms: number, extra: Record<string, unknown> = {}) => ({
+    type: 'assistant',
+    timestamp: iso(ms),
+    cwd: '/Users/someone/Developer/app',
+    message: { role: 'assistant', model: 'claude-test-1', content: [{ type: 'tool_use', id, name: 'AskUserQuestion', input: { questions: [q] } }] },
+    ...extra,
+  });
+  const answered = (id: string, ms: number) => ({
+    type: 'user',
+    timestamp: iso(ms),
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content: 'answered' }] },
+    toolUseResult: { questions: [q], answers: { 'Ship it?': 'Yes (recommended)' }, annotations: {} },
+  });
+  const transcripts = (lines: unknown[]) => {
+    const root = freshDir();
+    const file = path.join(root, '-Users-someone-Developer-app', 's1.jsonl');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, lines.map((l) => JSON.stringify(l) + '\n').join(''));
+    return root;
+  };
+
+  test('the import stores the model and skill Claude Code recorded on the asking line', async () => {
+    const root = transcripts([
+      use('t1', 0, { attributionSkill: 'gstack:plan-review' }),
+      answered('t1', 5_000),
+      use('t2', 60_000), // no attribution: Claude Code says no skill
+      answered('t2', 65_000),
+    ]);
+    const dir = freshDir();
+    await importHistory(dir, root, HOME_DIR);
+    const { rows } = readQuestions(dir, { now: T0 + 70_000 });
+    expect(rows.map((r) => [r.call, r.model, r.skill, r.agent])).toEqual([
+      ['t1', 'claude-test-1', 'plan-review', 'main agent'],
+      ['t2', 'claude-test-1', 'no skill', 'main agent'],
+    ]);
+  });
+
+  test('a question captured live gets its model from a later import, and keeps the agent the hook saw', async () => {
+    const dir = freshDir();
+    appendObservation(dir, obs(ASKED, { call: 't1', askTs: T0, session: 's1', skill: 'guessed-live', agent: 'Explore' }));
+    appendObservation(dir, obs('AGREED', { call: 't1', answerTs: T0 + 5_000, session: 's1' }));
+    expect(boardData(dir, { now: T0 + 6_000 }).needsImport).toBe(1);
+    await importHistory(dir, transcripts([use('t1', 0, { attributionSkill: 'plan-review' }), answered('t1', 5_000)]), HOME_DIR);
+    const [row] = readQuestions(dir, { now: T0 + 6_000 }).rows;
+    expect([row.model, row.skill, row.agent]).toEqual(['claude-test-1', 'plan-review', 'Explore']);
+  });
+
+  test('the hint counts what an import can still fill, and ends once an import has looked', async () => {
+    const dir = freshDir();
+    // History stored by 0.1.1: no attributes, and its session file is long gone.
+    appendObservation(dir, obs('AGREED', { source: 'import', call: 'old', askTs: T0 - 90 * 24 * 3_600_000, answerTs: T0 - 90 * 24 * 3_600_000 + 1 }));
+    expect(boardData(dir, { now: T0 }).needsImport).toBe(1);
+    expect(fs.existsSync(path.join(dir, IMPORT_RAN_FILE))).toBe(false);
+    await importHistory(dir, transcripts([]), HOME_DIR);
+    expect(fs.existsSync(path.join(dir, IMPORT_RAN_FILE))).toBe(true);
+    expect(boardData(dir, { now: Date.now() }).needsImport).toBe(0); // looked at, nothing to fill: no hint
+    // A question asked after that import has no model until the next one.
+    const later = Date.now() + 1_000;
+    appendObservation(dir, obs(ASKED, { call: 'new', askTs: later, skill: 'no skill', agent: 'main agent' }));
+    expect(boardData(dir, { now: later + 1 }).needsImport).toBe(1);
+  });
+
+  test('a question from another product never asks for a Claude Code import', () => {
+    const dir = freshDir();
+    appendObservation(dir, obs(ASKED, { call: 'x', askTs: T0, product: 'Codex CLI' }));
+    appendObservation(dir, obs('AGREED', { call: 'x', answerTs: T0 + 1 }));
+    expect(boardData(dir, { now: T0 + 2 }).needsImport).toBe(0);
+  });
+});
+

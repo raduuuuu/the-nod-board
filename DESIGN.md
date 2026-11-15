@@ -64,7 +64,13 @@ the browser's own disclosure, styled as 13px underlined text in the text color w
 
 A split table has four columns: name, share, answers, answer time. An answer time needs 5 timed
 prompts behind it, else an en dash. In a table of more than 6 rows, the rows under 5 answers fold
-into one closing line that keeps their total; a shorter table names every row.
+into one closing line that keeps their total; a shorter table names every row. The splits come
+in this order: skill, model, project, agent, product. A split is shown even with one row. The
+"unknown" row is last and is never folded.
+
+While an import would fill in a model or a skill, one 16px line above the splits says for how
+many questions and shows the import command. It is not repeated per table and it disappears
+once an import has looked.
 
 ## States
 First paint is the final frame with an en dash where each number will go; nothing spins or
