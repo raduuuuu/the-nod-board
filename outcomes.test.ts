@@ -6,12 +6,17 @@ import { LIVE, SNAPSHOT, maybeCompact } from './inbox';
 import { CONFLICT, OUTCOMES, aggregate } from './judgment';
 import {
   ASKED,
+  ATTRIBUTES,
+  ATTRIBUTE_MAX,
+  DEFAULT_PRODUCT,
   FORMAT_VERSION,
   OUTCOMES_FILE,
   SESSION_GONE_MS,
   appendNew,
   appendObservation,
+  boardData,
   importHistory,
+  productOf,
   readObservations,
   readQuestions,
   reconcile,
@@ -436,5 +441,133 @@ describe('importHistory (past sessions from transcripts)', () => {
     const missing = run(path.join(tmp, 'no-such-dir'));
     expect(missing.exitCode).toBe(1);
     expect(missing.stdout.toString()).toContain('No past sessions imported');
+  });
+});
+
+// A synthetic history in the format version 0.1.1 stored (no real question text). The numbers
+// below were computed by 0.1.1 itself; any change to the reader or to reconciliation that moves
+// one of them changes what an existing user sees for the history they already have.
+describe('history stored by 0.1.1 reads the same', () => {
+  const FIXTURE = path.join(import.meta.dir, 'test', 'fixtures', 'outcomes-0.1.1.jsonl');
+  const FIXTURE_NOW = Date.parse('2026-11-01T00:00:00.000Z');
+  const load = () => {
+    const dir = freshDir();
+    fs.mkdirSync(dir, { recursive: true });
+    fs.copyFileSync(FIXTURE, path.join(dir, OUTCOMES_FILE));
+    return dir;
+  };
+
+  test('totals, outcomes, projects, timing and the weekly trend are unchanged', () => {
+    const board = boardData(load(), { now: FIXTURE_NOW });
+    const t = board.totals;
+    expect(t.overall).toEqual({ agreed: 25, answered: 31 });
+    expect(t.counts).toEqual({
+      AGREED: 25,
+      OVERRODE_OPTION: 3,
+      OVERRODE_TYPED: 3,
+      DISMISSED: 3,
+      UNANSWERED: 1,
+      UNDECODED: 2,
+      EXCLUDED_MULTI: 1,
+      EXCLUDED_NO_REC: 3,
+    });
+    expect([t.calls, t.questions]).toEqual([40, 41]);
+    expect(t.timing).toEqual({ n: 34, medianMs: 30000, fast: 14 });
+    expect(t.projects).toEqual([
+      { project: 'beta', agreed: 9, answered: 12, medianMs: 30000 },
+      { project: 'alpha', agreed: 7, answered: 10, medianMs: 30000 },
+      { project: 'gamma', agreed: 9, answered: 9, medianMs: 30000 },
+    ]);
+    expect([t.sessions.length, t.overrides.length]).toEqual([15, 6]);
+    expect(board.weekly.map((w) => [w.agreed, w.answered]).slice(-4)).toEqual([[10, 12], [10, 12], [5, 7], [0, 0]]);
+    expect([board.unreadable, board.inferredDismissed]).toEqual([1, 0]);
+    expect(board.sources).toEqual({ hook: true, import: true });
+  });
+
+  test('every readable line is kept: 56 observations, and only the unfinished last line is unreadable', () => {
+    const stored = readObservations(load());
+    expect([stored.observations.length, stored.unreadable]).toEqual([56, 1]);
+  });
+
+  test('storing the same observations again adds nothing, so a repeated import of old history is a no-op', () => {
+    const dir = load();
+    expect(appendNew(dir, readObservations(dir).observations)).toBe(0);
+  });
+});
+
+describe('attributes: who asked', () => {
+  const WHO = { model: 'claude-test-1', skill: 'plan-review', agent: 'Explore', product: 'Codex CLI' };
+
+  test('an observation without attributes is written exactly as 0.1.1 wrote it', () => {
+    const dir = freshDir();
+    appendObservation(dir, obs('AGREED', { askTs: T0, answerTs: T0 + 1 }));
+    const line = fs.readFileSync(path.join(dir, OUTCOMES_FILE), 'utf8').trim();
+    expect(Object.keys(JSON.parse(line))).toEqual(['v', 'source', 'call', 'pos', 'kind', 'chip', 'title', 'session', 'project', 'askTs', 'answerTs']);
+  });
+
+  test('known attributes are stored after the 0.1.1 keys, in a fixed order, and read back', () => {
+    const dir = freshDir();
+    appendObservation(dir, obs(ASKED, { askTs: T0, ...WHO }));
+    const line = fs.readFileSync(path.join(dir, OUTCOMES_FILE), 'utf8').trim();
+    expect(Object.keys(JSON.parse(line)).slice(-4)).toEqual([...ATTRIBUTES]);
+    expect(readObservations(dir).observations[0]).toMatchObject(WHO);
+  });
+
+  test('a malformed attribute is dropped and the line keeps its outcome; a long one is cut', () => {
+    const dir = freshDir();
+    fs.mkdirSync(dir, { recursive: true });
+    const base = { v: 1, source: 'hook', call: 'c', pos: 0, kind: 'AGREED', chip: '', title: '', session: 's', project: 'p', askTs: null, answerTs: T0 };
+    const lines = [
+      { ...base, call: 'c1', model: 42, skill: '', agent: '   ', product: { a: 1 } },
+      { ...base, call: 'c2', model: 'm'.repeat(200) },
+    ];
+    fs.writeFileSync(path.join(dir, OUTCOMES_FILE), lines.map((l) => JSON.stringify(l)).join('\n') + '\n');
+    const stored = readObservations(dir);
+    expect(stored.unreadable).toBe(0);
+    expect(ATTRIBUTES.filter((k) => stored.observations[0][k] !== undefined)).toEqual([]);
+    expect(stored.observations[1].model).toHaveLength(ATTRIBUTE_MAX);
+  });
+
+  test('a question nobody attributed yields a row without attribute keys; its product reads Claude Code', () => {
+    const [row] = reconcile([obs(ASKED, { askTs: T0 }), obs('AGREED', { answerTs: T0 + 5 })], { now: NOW });
+    expect(ATTRIBUTES.filter((k) => k in row)).toEqual([]);
+    expect(productOf(row)).toBe(DEFAULT_PRODUCT);
+  });
+
+  test('attributes are merged one by one: a later import fills what the hook did not know', () => {
+    const asked = obs(ASKED, { askTs: T0, skill: 'plan-review', agent: 'Explore' });
+    const answered = obs('AGREED', { answerTs: T0 + 5 });
+    const imported = obs('AGREED', { source: 'import', askTs: T0, answerTs: T0 + 5, model: 'claude-test-1' });
+    for (const order of [[asked, answered, imported], [imported, answered, asked]]) {
+      const [row] = reconcile(order, { now: NOW });
+      expect([row.outcome, row.model, row.skill, row.agent]).toEqual(['AGREED', 'claude-test-1', 'plan-review', 'Explore']);
+    }
+  });
+
+  test('two known values: the import wins for model and skill, the hook for agent and product', () => {
+    const asked = obs(ASKED, { askTs: T0, model: 'hook-model', skill: 'hook-skill', agent: 'hook-agent', product: 'hook-product' });
+    const imported = obs('AGREED', { source: 'import', askTs: T0, answerTs: T0 + 5, model: 'import-model', skill: 'import-skill', agent: 'import-agent', product: 'import-product' });
+    for (const order of [[asked, imported], [imported, asked]]) {
+      const [row] = reconcile(order, { now: NOW });
+      expect([row.model, row.skill, row.agent, row.product]).toEqual(['import-model', 'import-skill', 'hook-agent', 'hook-product']);
+    }
+  });
+
+  test('the hook value counts only from the moment of asking, never from the answer', () => {
+    const asked = obs(ASKED, { askTs: T0, skill: 'at-ask' });
+    const answered = obs('AGREED', { answerTs: T0 + 5, skill: 'at-answer', model: 'at-answer' });
+    const [row] = reconcile([answered, asked], { now: NOW });
+    expect([row.outcome, row.skill, row.model]).toEqual(['AGREED', 'at-ask', undefined]);
+  });
+
+  test('an import that now knows the model is new evidence and is stored once; a repeat adds nothing', () => {
+    const dir = freshDir();
+    const old = obs('AGREED', { source: 'import', askTs: T0, answerTs: T0 + 5 });
+    expect(appendNew(dir, [old])).toBe(1);
+    const withModel = { ...old, model: 'claude-test-1' };
+    expect(appendNew(dir, [withModel])).toBe(1);
+    expect(appendNew(dir, [withModel])).toBe(0);
+    const { rows } = readQuestions(dir, { now: NOW });
+    expect(rows.map((r) => [r.outcome, r.model])).toEqual([['AGREED', 'claude-test-1']]);
   });
 });

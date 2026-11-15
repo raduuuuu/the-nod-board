@@ -16,8 +16,13 @@
  *                         CONFLICT when its copies contradict each other
  *
  * What a line holds (and nothing else): the question's identity (call id + position), its
- * outcome, label chip, first line (cut to 120 characters), session, project and two timestamps.
- * Option text and answers are never written.
+ * outcome, label chip, first line (cut to 120 characters), session, project and two timestamps,
+ * and up to four optional attributes saying who asked: model, skill, agent, product (each cut
+ * to 80 characters). Option text and answers are never written.
+ *
+ * The format version stays 1. The attributes are optional keys, written only when known, so a
+ * line stored by 0.1.1 is still a valid line and an observation without attributes is written
+ * exactly as 0.1.1 wrote it. A reader from 0.1.1 ignores the extra keys.
  *
  * Reconciliation, per question, strongest evidence wins; arrival order never matters:
  *   CONFLICT, or two different observed answers ...... UNDECODED
@@ -26,6 +31,16 @@
  *   UNDECODED ........................................ UNDECODED
  *   only ASKED ....................................... DISMISSED (inferred) once the session moved on,
  *                                                      otherwise UNANSWERED
+ *
+ * Attributes are merged per attribute across a question's observations, independently of which
+ * observation decides the outcome:
+ *   model, skill ... the import's value (Claude Code's own attribution in the transcript), else
+ *                    the value the hook stored when the question was asked
+ *   agent, product . the value the hook stored when the question was asked, else the import's
+ * Hook values are taken only from the ASKED observation: what was current at the moment of
+ * asking, not at the moment of answering. A row carries only the attributes some source
+ * captured; a missing product means Claude Code (productOf).
+ *
  * "The session moved on" means a later prompt, Stop or SessionEnd in that session, a later
  * question in it, or no trace of the session for 7 days. A dismissed question fires no hook of
  * its own, so this is an inference and the row says so.
@@ -54,6 +69,12 @@ import {
 export const OUTCOMES_FILE = 'outcomes.jsonl';
 export const FORMAT_VERSION = 1;
 export const ASKED = 'ASKED';
+/** The optional attributes of an observation, in the order they are written. */
+export const ATTRIBUTES = ['model', 'skill', 'agent', 'product'] as const;
+export type Attribute = (typeof ATTRIBUTES)[number];
+export const ATTRIBUTE_MAX = 80;
+/** Every question stored before products were recorded came from Claude Code. */
+export const DEFAULT_PRODUCT = 'Claude Code';
 /** An unanswered question whose session left no later trace for this long is taken as dismissed. */
 export const SESSION_GONE_MS = 7 * 24 * 3_600_000;
 
@@ -73,6 +94,11 @@ export interface Observation {
   askTs: number | null;
   /** When the answer or rejection arrived, if this source saw that. */
   answerTs: number | null;
+  /** Who asked, when this source knew it. Absent means not captured. */
+  model?: string;
+  skill?: string;
+  agent?: string;
+  product?: string;
 }
 
 const KINDS: ReadonlySet<string> = new Set<string>([...OUTCOMES, ASKED, CONFLICT]);
@@ -91,7 +117,7 @@ function toObservation(v: unknown): Observation | null {
   if (typeof o.chip !== 'string' || typeof o.title !== 'string') return null;
   if (typeof o.session !== 'string' || typeof o.project !== 'string') return null;
   if (askTs === undefined || answerTs === undefined) return null;
-  return {
+  const obs: Observation = {
     v: FORMAT_VERSION,
     source: o.source,
     call: o.call,
@@ -104,11 +130,27 @@ function toObservation(v: unknown): Observation | null {
     askTs,
     answerTs,
   };
+  // A malformed attribute is dropped; it never costs the line its outcome.
+  for (const key of ATTRIBUTES) {
+    const value = attributeValue(o[key]);
+    if (value !== undefined) obs[key] = value;
+  }
+  return obs;
 }
 
-/** Fixed key order, so identical observations are identical lines. */
+/** A stored or incoming attribute as it may be kept: a non-empty string, cut to ATTRIBUTE_MAX. */
+function attributeValue(v: unknown): string | undefined {
+  if (typeof v !== 'string') return undefined;
+  const s = v.trim();
+  return s ? s.slice(0, ATTRIBUTE_MAX) : undefined;
+}
+
+/**
+ * Fixed key order, so identical observations are identical lines. Attributes follow the 0.1.1
+ * keys and appear only when known, so an observation without them is the line 0.1.1 wrote.
+ */
 function lineOf(o: Observation): string {
-  return JSON.stringify({
+  const line: Record<string, unknown> = {
     v: o.v,
     source: o.source,
     call: o.call,
@@ -120,7 +162,12 @@ function lineOf(o: Observation): string {
     project: o.project,
     askTs: o.askTs,
     answerTs: o.answerTs,
-  });
+  };
+  for (const key of ATTRIBUTES) {
+    const value = attributeValue(o[key]);
+    if (value !== undefined) line[key] = value;
+  }
+  return JSON.stringify(line);
 }
 
 function ensureDir(dir: string) {
@@ -200,6 +247,35 @@ function rankOf(kind: ObservedKind): number {
 
 const earliest = (a: number | null, b: number | null) => (a === null ? b : b === null ? a : Math.min(a, b));
 
+/** The attributes for which the import is asked before the hook; see the header. */
+const IMPORT_FIRST: ReadonlySet<Attribute> = new Set<Attribute>(['model', 'skill']);
+
+/** One attribute of a question from all its observations, or null when no source captured it. */
+function mergedAttribute(list: readonly Observation[], key: Attribute): string | null {
+  const fromImport = list.find((o) => o.source === 'import' && o[key] !== undefined)?.[key];
+  // Only what the hook stored at the moment of asking counts; state may have changed by the answer.
+  const fromHook = list.find((o) => o.source === 'hook' && o.kind === ASKED && o[key] !== undefined)?.[key];
+  return (IMPORT_FIRST.has(key) ? (fromImport ?? fromHook) : (fromHook ?? fromImport)) ?? null;
+}
+
+/**
+ * The attributes some source captured, and only those: a question nobody attributed yields a
+ * row with no attribute keys, exactly the row 0.1.1 produced for it.
+ */
+function knownAttributes(list: readonly Observation[]): Partial<Record<Attribute, string>> {
+  const known: Partial<Record<Attribute, string>> = {};
+  for (const key of ATTRIBUTES) {
+    const value = mergedAttribute(list, key);
+    if (value !== null) known[key] = value;
+  }
+  return known;
+}
+
+/** The product a row came from; history stored before products were recorded is Claude Code. */
+export function productOf(row: Pick<QuestionRow, 'product'>): string {
+  return row.product ?? DEFAULT_PRODUCT;
+}
+
 export function reconcile(observations: readonly Observation[], opts: ReconcileOptions): QuestionRow[] {
   const byQuestion = new Map<string, Observation[]>();
   const callAsk = new Map<string, number | null>();
@@ -257,6 +333,7 @@ export function reconcile(observations: readonly Observation[], opts: ReconcileO
       askTs,
       // Elapsed time belongs to the call; aggregate() counts it once per call.
       elapsedMs: answered && askTs !== null && answerTs !== null && answerTs >= askTs ? answerTs - askTs : null,
+      ...knownAttributes(list),
     });
   }
   return rows.sort((a, b) => (a.askTs ?? Infinity) - (b.askTs ?? Infinity) || a.call.localeCompare(b.call) || a.pos - b.pos);

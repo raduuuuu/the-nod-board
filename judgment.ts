@@ -452,6 +452,12 @@ export interface QuestionRow {
   askTs: number | null;
   /** Time to answer for the whole call, repeated on each of its rows; counted once per call. */
   elapsedMs: number | null;
+  /** Who asked, when a source recorded it: model id, skill name, agent type. Absent means not captured. */
+  model?: string;
+  skill?: string;
+  agent?: string;
+  /** The agent product the question came from. Absent means Claude Code (outcomes.ts productOf). */
+  product?: string;
 }
 
 /** Stored marker for a call whose copies contradict each other; reconciles to UNDECODED and outranks any single answer. */

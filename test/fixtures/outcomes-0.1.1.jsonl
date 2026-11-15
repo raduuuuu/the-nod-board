@@ -1,0 +1,57 @@
+{"v":1,"source":"hook","call":"toolu_fx000","pos":0,"kind":"ASKED","chip":"Approach","title":"Synthetic question 0?","session":"sess-fx-0","project":"alpha","askTs":1791190800000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx000","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 0?","session":"sess-fx-0","project":"alpha","askTs":null,"answerTs":1791190804000}
+{"v":1,"source":"import","call":"toolu_fx000","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 0?","session":"sess-fx-0","project":"alpha","askTs":1791190800000,"answerTs":1791190804000}
+{"v":1,"source":"import","call":"toolu_fx001","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 1?","session":"sess-fx-1","project":"beta","askTs":1791234000000,"answerTs":1791234012000}
+{"v":1,"source":"import","call":"toolu_fx002","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 2?","session":"sess-fx-2","project":"gamma","askTs":1791277200000,"answerTs":1791277230000}
+{"v":1,"source":"import","call":"toolu_fx003","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 3?","session":"sess-fx-3","project":"alpha","askTs":1791320400000,"answerTs":1791320475000}
+{"v":1,"source":"hook","call":"toolu_fx004","pos":0,"kind":"ASKED","chip":"Scope","title":"Synthetic question 4?","session":"sess-fx-4","project":"beta","askTs":1791363600000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx004","pos":0,"kind":"OVERRODE_OPTION","chip":"Scope","title":"Synthetic question 4?","session":"sess-fx-4","project":"beta","askTs":null,"answerTs":1791363800000}
+{"v":1,"source":"import","call":"toolu_fx005","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 5?","session":"sess-fx-0","project":"gamma","askTs":1791406800000,"answerTs":1791406804000}
+{"v":1,"source":"import","call":"toolu_fx006","pos":0,"kind":"OVERRODE_TYPED","chip":"Approach","title":"Synthetic question 6?","session":"sess-fx-1","project":"alpha","askTs":1791450000000,"answerTs":1791450012000}
+{"v":1,"source":"import","call":"toolu_fx007","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 7?","session":"sess-fx-2","project":"beta","askTs":1791493200000,"answerTs":1791493230000}
+{"v":1,"source":"hook","call":"toolu_fx008","pos":0,"kind":"ASKED","chip":"Next step","title":"Synthetic question 8?","session":"sess-fx-3","project":"gamma","askTs":1791536400000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx008","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 8?","session":"sess-fx-3","project":"gamma","askTs":null,"answerTs":1791536475000}
+{"v":1,"source":"import","call":"toolu_fx008","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 8?","session":"sess-fx-3","project":"gamma","askTs":1791536400000,"answerTs":1791536475000}
+{"v":1,"source":"import","call":"toolu_fx009","pos":0,"kind":"DISMISSED","chip":"Approach","title":"Synthetic question 9?","session":"sess-fx-4","project":"alpha","askTs":1791579600000,"answerTs":1791579800000}
+{"v":1,"source":"import","call":"toolu_fx010","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 10?","session":"sess-fx-0","project":"beta","askTs":1791622800000,"answerTs":1791622804000}
+{"v":1,"source":"import","call":"toolu_fx011","pos":0,"kind":"EXCLUDED_NO_REC","chip":"Next step","title":"Synthetic question 11?","session":"sess-fx-1","project":"gamma","askTs":1791666000000,"answerTs":1791666012000}
+{"v":1,"source":"hook","call":"toolu_fx012","pos":0,"kind":"ASKED","chip":"Approach","title":"Synthetic question 12?","session":"sess-fx-2","project":"alpha","askTs":1791709200000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx012","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 12?","session":"sess-fx-2","project":"alpha","askTs":null,"answerTs":1791709230000}
+{"v":1,"source":"import","call":"toolu_fx013","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 13?","session":"sess-fx-3","project":"beta","askTs":1791752400000,"answerTs":1791752475000}
+{"v":1,"source":"import","call":"toolu_fx014","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 14?","session":"sess-fx-4","project":"gamma","askTs":1791795600000,"answerTs":1791795800000}
+{"v":1,"source":"import","call":"toolu_fx015","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 15?","session":"sess-fx-0","project":"alpha","askTs":1791838800000,"answerTs":1791838804000}
+{"v":1,"source":"hook","call":"toolu_fx016","pos":0,"kind":"ASKED","chip":"Scope","title":"Synthetic question 16?","session":"sess-fx-1","project":"beta","askTs":1791882000000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx016","pos":0,"kind":"OVERRODE_OPTION","chip":"Scope","title":"Synthetic question 16?","session":"sess-fx-1","project":"beta","askTs":null,"answerTs":1791882012000}
+{"v":1,"source":"import","call":"toolu_fx016","pos":0,"kind":"OVERRODE_OPTION","chip":"Scope","title":"Synthetic question 16?","session":"sess-fx-1","project":"beta","askTs":1791882000000,"answerTs":1791882012000}
+{"v":1,"source":"import","call":"toolu_fx017","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 17?","session":"sess-fx-2","project":"gamma","askTs":1791925200000,"answerTs":1791925230000}
+{"v":1,"source":"import","call":"toolu_fx018","pos":0,"kind":"OVERRODE_TYPED","chip":"Approach","title":"Synthetic question 18?","session":"sess-fx-3","project":"alpha","askTs":1791968400000,"answerTs":1791968475000}
+{"v":1,"source":"import","call":"toolu_fx019","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 19?","session":"sess-fx-4","project":"beta","askTs":1792011600000,"answerTs":1792011800000}
+{"v":1,"source":"hook","call":"toolu_fx020","pos":0,"kind":"ASKED","chip":"Next step","title":"Synthetic question 20?","session":"sess-fx-0","project":"gamma","askTs":1792054800000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx020","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 20?","session":"sess-fx-0","project":"gamma","askTs":null,"answerTs":1792054804000}
+{"v":1,"source":"import","call":"toolu_fx021","pos":0,"kind":"DISMISSED","chip":"Approach","title":"Synthetic question 21?","session":"sess-fx-1","project":"alpha","askTs":1792098000000,"answerTs":1792098012000}
+{"v":1,"source":"import","call":"toolu_fx022","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 22?","session":"sess-fx-2","project":"beta","askTs":1792141200000,"answerTs":1792141230000}
+{"v":1,"source":"import","call":"toolu_fx023","pos":0,"kind":"EXCLUDED_NO_REC","chip":"Next step","title":"Synthetic question 23?","session":"sess-fx-3","project":"gamma","askTs":1792184400000,"answerTs":1792184475000}
+{"v":1,"source":"hook","call":"toolu_fx024","pos":0,"kind":"ASKED","chip":"Approach","title":"Synthetic question 24?","session":"sess-fx-4","project":"alpha","askTs":1792227600000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx024","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 24?","session":"sess-fx-4","project":"alpha","askTs":null,"answerTs":1792227800000}
+{"v":1,"source":"import","call":"toolu_fx024","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 24?","session":"sess-fx-4","project":"alpha","askTs":1792227600000,"answerTs":1792227800000}
+{"v":1,"source":"import","call":"toolu_fx025","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 25?","session":"sess-fx-0","project":"beta","askTs":1792270800000,"answerTs":1792270804000}
+{"v":1,"source":"import","call":"toolu_fx026","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 26?","session":"sess-fx-1","project":"gamma","askTs":1792314000000,"answerTs":1792314012000}
+{"v":1,"source":"import","call":"toolu_fx027","pos":0,"kind":"AGREED","chip":"Approach","title":"Synthetic question 27?","session":"sess-fx-2","project":"alpha","askTs":1792357200000,"answerTs":1792357230000}
+{"v":1,"source":"hook","call":"toolu_fx028","pos":0,"kind":"ASKED","chip":"Scope","title":"Synthetic question 28?","session":"sess-fx-3","project":"beta","askTs":1792400400000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx028","pos":0,"kind":"OVERRODE_OPTION","chip":"Scope","title":"Synthetic question 28?","session":"sess-fx-3","project":"beta","askTs":null,"answerTs":1792400475000}
+{"v":1,"source":"import","call":"toolu_fx029","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 29?","session":"sess-fx-4","project":"gamma","askTs":1792443600000,"answerTs":1792443800000}
+{"v":1,"source":"import","call":"toolu_fx030","pos":0,"kind":"OVERRODE_TYPED","chip":"Approach","title":"Synthetic question 30?","session":"sess-fx-0","project":"alpha","askTs":1792486800000,"answerTs":1792486804000}
+{"v":1,"source":"import","call":"toolu_fx031","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 31?","session":"sess-fx-1","project":"beta","askTs":1792530000000,"answerTs":1792530012000}
+{"v":1,"source":"hook","call":"toolu_fx032","pos":0,"kind":"ASKED","chip":"Next step","title":"Synthetic question 32?","session":"sess-fx-2","project":"gamma","askTs":1792573200000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx032","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 32?","session":"sess-fx-2","project":"gamma","askTs":null,"answerTs":1792573230000}
+{"v":1,"source":"import","call":"toolu_fx032","pos":0,"kind":"AGREED","chip":"Next step","title":"Synthetic question 32?","session":"sess-fx-2","project":"gamma","askTs":1792573200000,"answerTs":1792573230000}
+{"v":1,"source":"import","call":"toolu_fx033","pos":0,"kind":"DISMISSED","chip":"Approach","title":"Synthetic question 33?","session":"sess-fx-3","project":"alpha","askTs":1792616400000,"answerTs":1792616475000}
+{"v":1,"source":"import","call":"toolu_fx034","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic question 34?","session":"sess-fx-4","project":"beta","askTs":1792659600000,"answerTs":1792659800000}
+{"v":1,"source":"import","call":"toolu_fx035","pos":0,"kind":"EXCLUDED_NO_REC","chip":"Next step","title":"Synthetic question 35?","session":"sess-fx-0","project":"gamma","askTs":1792702800000,"answerTs":1792702804000}
+{"v":1,"source":"import","call":"toolu_fx100","pos":0,"kind":"AGREED","chip":"Mode","title":"Synthetic pair, first?","session":"sess-fx-1","project":"alpha","askTs":1792918800000,"answerTs":1792918850000}
+{"v":1,"source":"import","call":"toolu_fx100","pos":1,"kind":"EXCLUDED_MULTI","chip":"Mode","title":"Synthetic pair, second?","session":"sess-fx-1","project":"alpha","askTs":1792918800000,"answerTs":1792918850000}
+{"v":1,"source":"import","call":"toolu_fx101","pos":0,"kind":"CONFLICT","chip":"Scope","title":"Synthetic contradiction?","session":"sess-fx-2","project":"beta","askTs":1793005200000,"answerTs":null}
+{"v":1,"source":"hook","call":"toolu_fx101","pos":0,"kind":"AGREED","chip":"Scope","title":"Synthetic contradiction?","session":"sess-fx-2","project":"beta","askTs":null,"answerTs":1793005209000}
+{"v":1,"source":"hook","call":"toolu_fx102","pos":0,"kind":"UNDECODED","chip":"","title":"","session":"sess-fx-3","project":"gamma","askTs":null,"answerTs":1793091600000}
+{"v":1,"source":"hook","call":"toolu_fx103","pos":0,"kind":"ASKED","chip":"Next step","title":"Synthetic open question?","session":"sess-fx-9","project":"gamma","askTs":1793178000000,"answerTs":null}
+{"v":1,"source":"hook"
