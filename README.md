@@ -66,6 +66,50 @@ dashboard, checked against a second build of the same commit.
 Updates are not automatic for third-party marketplaces unless you turn that on in `/plugin`.
 To update by hand: `claude plugin update nod-board@nod-board`.
 
+## Codex CLI (experimental)
+
+The board can also count the questions Codex asks you. Codex has its own question tool
+(`request_user_input`, available in Plan mode) and runs hooks around it; a recommended option is
+marked the same way, with "(Recommended)" in its label. Those questions appear on the board with
+the product "Codex CLI" and their model, which Codex does report to hooks.
+
+What has been checked, on Codex CLI 0.163.0: the hooks fire, the question and its options reach
+the hook, the recommendation is marked, and a question is stored when asked and when the tool
+returns without an answer.
+
+What has not been checked:
+
+- **The result of an answered question.** It could not be measured without an interactive Plan
+  mode session. The reader accepts the shapes other tools describe; if Codex sends something
+  else, the board says "answers could not be read" for those questions and never invents an
+  outcome.
+- **Installing through a Codex plugin marketplace.** The repository carries a Codex plugin
+  manifest (`.codex-plugin/plugin.json`, hooks in `hooks/codex-hooks.json`), but that route has
+  not been tried.
+
+To register the hooks by hand, from a clone of this repository, add this to `~/.codex/hooks.json`
+(Codex's documented format), with your own path:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "^request_user_input$", "hooks": [{ "type": "command", "command": "/path/to/the-nod-board/hooks/run.sh PreToolUse codex", "timeout": 5 }] }
+    ],
+    "PostToolUse": [
+      { "matcher": "^request_user_input$", "hooks": [{ "type": "command", "command": "/path/to/the-nod-board/hooks/run.sh PostToolUse codex", "timeout": 5 }] }
+    ]
+  }
+}
+```
+
+Codex asks you to review and trust a new hook before it runs (`/hooks`). Nothing here edits your
+Codex configuration for you.
+
+For Codex only the question outcomes are captured: Codex sessions do not appear under "Needs
+you", past Codex sessions are not imported, and Codex does not start the board. The board is
+started by a Claude Code session or by `bun scripts/board.ts open`.
+
 ## Try it from a checkout
 
 ```sh
@@ -143,6 +187,8 @@ Per question of an AskUserQuestion call, the first rule that matches:
   every median are over timed prompts; a median is shown with at least 5 of them.
 - "Last 7 days" is the 168 hours before now, by the time of the answer.
 - A session is dated by its latest answer.
+- A question Codex asked is counted by the same rules. When its tool returns with no answer at
+  all, the question is dismissed.
 - Projects are named after the last segment of the session's working directory.
 - Who asked: the skill is the one the agent started or the command you typed, until the turn
   ends; "no skill" means the question was asked outside any. The agent is the subagent type, or

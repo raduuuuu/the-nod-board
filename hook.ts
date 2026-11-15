@@ -12,6 +12,10 @@
  *          what a line may hold: never option text, never the answer)
  *   SessionStart -> make sure the local server is running and current (see onSessionStart)
  *
+ * Called by Codex (second argument "codex", hooks/codex-hooks.json): only the question tool's
+ * two events arrive, and only question observations are written (codex.ts). No session event,
+ * no attrs state and no server start: those belong to Claude Code sessions.
+ *
  * Contract: always exit 0 and print nothing on stdout, so a session is never blocked or altered.
  * Problems append one line to <dir>/hook-errors.log. Files are 0600, the directory 0700.
  * `readHookPayload` is the only place that knows the payload shape (measured on Claude Code
@@ -20,6 +24,7 @@
  */
 import { spawn } from 'node:child_process';
 import { at as whoAt, note as noteAttrs, type AttrEvent } from './attrs';
+import { CODEX_ARG, codexObservations } from './codex';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -208,6 +213,23 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
     logError(dir, `could not write to ${dir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
   }
   return payload;
+}
+
+/** Handle one hook invocation from Codex. Never throws. Writes question observations and nothing else. */
+export function handleCodex(raw: string, env: Record<string, string | undefined>, now: number): void {
+  const dir = dataDir(env);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    logError(dir, 'unparsable Codex hook payload (bad JSON)');
+    return;
+  }
+  try {
+    for (const obs of codexObservations(parsed, now, env.HOME || os.homedir())) appendObservation(dir, obs);
+  } catch (err) {
+    logError(dir, `could not write to ${dir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
+  }
 }
 
 // ---------------------------------------------------------------- server start
@@ -411,6 +433,10 @@ if (import.meta.main) {
     process.exit(0);
   }
   const raw = await Bun.stdin.text();
+  if (process.argv[3] === CODEX_ARG) {
+    handleCodex(raw, process.env, Date.now());
+    process.exit(0);
+  }
   const payload = handle(raw, process.env, Date.now());
   if (payload?.event === 'SessionStart') {
     try {

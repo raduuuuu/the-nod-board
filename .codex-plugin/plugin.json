@@ -1,0 +1,17 @@
+{
+  "name": "nod-board",
+  "version": "0.1.1",
+  "description": "The Nod Board for Codex: records, on this machine only, how often you take the recommended option when Codex asks you a question. The board itself is the Claude Code plugin of the same name.",
+  "author": {
+    "name": "Radu Diaconescu"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/raduuuuu/the-nod-board",
+  "keywords": [
+    "dashboard",
+    "hooks",
+    "analytics",
+    "local"
+  ],
+  "hooks": "./hooks/codex-hooks.json"
+}
