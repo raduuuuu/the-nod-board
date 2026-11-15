@@ -1,7 +1,7 @@
 {
   "name": "nod-board",
   "description": "The Nod Board: a local dashboard for Claude Code sessions. See what needs you now, and how often you nod along with the agent's recommendation. Nothing leaves your machine.",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "license": "MIT",
   "keywords": [
     "dashboard",
