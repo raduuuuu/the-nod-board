@@ -48,7 +48,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { CLAUDE_CODE } from './attrs';
-import { aliasOf, projectResolver, readAliases } from './project';
+import { projectResolver, readAliases, shownName } from './project';
 import {
   CONFLICT,
   OUTCOMES,
@@ -219,14 +219,24 @@ export function readObservations(dir: string): StoredObservations {
  * Append the observations that are not stored yet and return how many were added. Only an
  * identical observation is skipped: new or stronger evidence about a known question is added,
  * so a later import can supply an answer the hook missed.
+ *
+ * One identical line is written again: the question's last line names its project (reconcile),
+ * so when the naming rule returns a question to a name an older line already gave it, that
+ * older line is no longer the last, and only a new copy can say so.
  */
 export function appendNew(dir: string, observations: readonly Observation[]): number {
-  const have = new Set(readObservations(dir).observations.map(lineOf));
+  const stored = readObservations(dir).observations;
+  const have = new Set(stored.map(lineOf));
+  const named = new Map<string, string>();
+  const keyOf = (o: Observation) => `${o.call}\u0000${o.pos}`;
+  for (const o of stored) named.set(keyOf(o), o.project);
   const fresh: string[] = [];
   for (const obs of observations) {
     const line = lineOf(obs);
-    if (have.has(line)) continue;
+    const key = keyOf(obs);
+    if (have.has(line) && (named.get(key) ?? obs.project) === obs.project) continue;
     have.add(line);
+    named.set(key, obs.project);
     fresh.push(line);
   }
   if (!fresh.length) return 0;
@@ -403,7 +413,10 @@ export function boardData(dir: string, opts: ReconcileOptions): BoardData {
   const stored = readObservations(dir);
   // The user's own renames are applied here, on the way to the board; what is stored keeps its name.
   const aliases = readAliases(dir);
-  const rows = reconcile(stored.observations, opts).map((r) => (aliases.names.has(r.project) ? { ...r, project: aliasOf(aliases, r.project) } : r));
+  const rows = reconcile(stored.observations, opts).map((r) => {
+    const project = shownName(aliases, r.project);
+    return project === r.project ? r : { ...r, project };
+  });
   const answered = callAnswerTimes(stored.observations);
   return {
     totals: aggregate(rows, { now: opts.now, answeredAt: (call) => answered.get(call) ?? null }),

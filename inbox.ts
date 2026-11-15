@@ -25,7 +25,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { aliasOf, projectOfSession, readAliases } from './project';
+import { projectOfSession, readAliases, shownName } from './project';
 
 export const HOUR = 3_600_000;
 export const STALE_AFTER_MS = 12 * HOUR;
@@ -599,7 +599,7 @@ export function writeWantedVersion(dir: string, version: string, root: string): 
 
 export interface InboxConfig {
   dir: string;
-  /** The user's home directory; a session running there is shown as "(home directory)". */
+  /** The user's home directory; a session running there is shown as "no project". */
   home: string;
   stateRoot: string;
   /** Claude Code transcripts, read by judgment.ts. */
@@ -707,7 +707,7 @@ export class Inbox {
       if (s.state === 'RUNNING') running++;
       if (s.display === 'HIDDEN') continue;
       const name = projectOfSession(startCwd.get(s.session_id), s.cwd, this.cfg.home);
-      shown.push({ ...s, project: name === null ? UNASSIGNED : aliasOf(aliases, name) });
+      shown.push({ ...s, project: name === null ? UNASSIGNED : shownName(aliases, name) });
     }
     const newest = (a: ShownSession, b: ShownSession) => b.since - a.since;
     const by = (d: DisplayState) => shown.filter((s) => s.display === d).sort(newest);

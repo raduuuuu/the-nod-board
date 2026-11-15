@@ -197,12 +197,15 @@ Per question of an AskUserQuestion call, the first rule that matches:
 - A session's project is the folder it started in, not wherever it worked later. The folder is
   named after its git repository: the last part of the address of the remote called `origin`,
   or the repository's main folder when there is no such remote. A renamed checkout, a second
-  clone and a worktree are therefore one project. The home directory is "(home directory)"; a
+  clone and a worktree are therefore one project. The home directory is "no project"; a
   folder in no repository has its own name. Only the name is kept: the hook reads `.git/config`
   for it, starts no program, and never stores the address.
 - A session started in the home directory has no project of its own. Each of its questions
-  belongs to the repository it was asked in, and to "(home directory)" when it was asked in
-  none.
+  belongs to the repository it was asked in, and to "no project" when it was asked in none.
+  ("no project" is stored as `(home directory)`, the name it had up to 0.3.0.)
+- gstack keeps a project's plans and reviews in `~/.gstack/projects/<name>`, outside the
+  checkout. A question asked from there belongs to `<name>`. If gstack's name differs from the
+  repository's (`owner-repo`, or an older name), an alias merges the two.
 - History captured by 0.2.1 or earlier was named after the folder a question was asked in. Run
   `/nod-board:import` once after updating: it names past sessions by the new rule.
 - A folder that no longer exists cannot be looked up, so its sessions keep the folder's name.

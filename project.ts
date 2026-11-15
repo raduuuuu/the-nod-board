@@ -4,13 +4,14 @@
  *   resolveProject(folder, home)   the name of the project a folder belongs to
  *   projectOfSession(start, asked) the project of a question, from where its session started
  *   noteStart / projectAt          live: fixed when the session starts, read when a question is asked
- *   readAliases / aliasOf          the user's own renames, applied when the board is read
+ *   readAliases / shownName        the user's own renames, applied when the board is read
  *
  * The rule: a session belongs to the folder it started in, not to wherever it later worked.
  * That folder is named after its git repository, so a renamed checkout, a second clone and a
  * worktree of one repository are one project:
  *
- *   the home directory itself                 HOME_PROJECT
+ *   the home directory itself                 HOME_PROJECT, shown as "no project"
+ *   a gstack state folder for a project       that project's name (<state root>/projects/<name>/...)
  *   inside a repository with an "origin"      the last segment of origin's address, without ".git"
  *   inside a repository without one           the name of the repository's main folder
  *   anywhere else                             the folder's own name
@@ -30,6 +31,14 @@
  * directory, so a home directory that is itself a repository does not claim every folder in it.
  * Anything that cannot be read falls back to the folder's own name. Never throws.
  *
+ * gstack keeps a project's plans and reviews in <state root>/projects/<name>, outside the
+ * checkout, and a planning session asks its questions from there. Those questions belong to
+ * <name>. The folder gstack makes for the home directory itself, named after it, is no project.
+ * The state root is ~/.gstack, or AGENT_INBOX_GSTACK_STATE_ROOT as for the TODOS list.
+ *
+ * HOME_PROJECT is the stored marker and keeps its old text, so lines written by any version mean
+ * the same; the board shows it as NO_PROJECT.
+ *
  * A folder that no longer exists cannot be resolved, so its sessions keep the folder's name.
  * For those, and for any name the user wants changed, there is the alias file:
  * <data dir>/project-aliases.json, one object of "name as shown": "name wanted". It is applied
@@ -40,7 +49,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getSessionValue, putSessionValue } from './attrs';
 
+/** Stored for a question that belongs to no project. Its text is the name versions up to 0.3.0 showed. */
 export const HOME_PROJECT = '(home directory)';
+/** How HOME_PROJECT is shown. */
+export const NO_PROJECT = 'no project';
 export const ALIASES_FILE = 'project-aliases.json';
 export const NAME_MAX = 80;
 /** The session's project, kept beside its other state while the session lives. */
@@ -96,6 +108,20 @@ export function originUrl(config: string): string | null {
   return null;
 }
 
+/**
+ * The project a gstack state folder belongs to: its name, HOME_PROJECT for the folder of the home
+ * directory itself and for the projects folder, or undefined when `dir` is no state folder.
+ */
+function gstackProject(dir: string, home: string): string | undefined {
+  const root = trimSlash(process.env.AGENT_INBOX_GSTACK_STATE_ROOT || path.join(trimSlash(home), '.gstack'));
+  const projects = path.join(root, 'projects');
+  if (dir === projects) return HOME_PROJECT;
+  if (!dir.startsWith(projects + path.sep)) return undefined;
+  const name = dir.slice(projects.length + 1).split(path.sep)[0];
+  if (name === path.basename(trimSlash(home))) return HOME_PROJECT;
+  return clean(name) ?? HOME_PROJECT;
+}
+
 /** The repository a folder is in, as its name; null when it is in none or it cannot be read. Never throws. */
 export function repositoryOf(folder: string | null | undefined, home: string): string | null {
   if (!folder || !path.isAbsolute(folder)) return null;
@@ -148,7 +174,7 @@ export function resolveProject(folder: string | null | undefined, home: string):
   if (!folder) return null;
   const dir = trimSlash(folder);
   if (dir === trimSlash(home)) return HOME_PROJECT;
-  return repositoryOf(dir, home) ?? clean(projectOfCwd(dir, home));
+  return gstackProject(dir, home) ?? repositoryOf(dir, home) ?? clean(projectOfCwd(dir, home));
 }
 
 /**
@@ -157,6 +183,8 @@ export function resolveProject(folder: string | null | undefined, home: string):
  * keeps its own name, as before, and an alias can say what it was.
  */
 function fromHome(asked: string | null | undefined, home: string): string {
+  const state = asked ? gstackProject(trimSlash(asked), home) : undefined;
+  if (state !== undefined) return state;
   const repo = repositoryOf(asked, home);
   if (repo) return repo;
   if (asked && path.isAbsolute(asked) && !fs.existsSync(asked)) return resolveProject(asked, home) ?? HOME_PROJECT;
@@ -237,4 +265,14 @@ export function readAliases(dir: string): Aliases {
 
 export function aliasOf(aliases: Aliases, name: string): string {
   return aliases.names.get(name) ?? name;
+}
+
+/**
+ * A stored project name as the board shows it: HOME_PROJECT reads NO_PROJECT, then the user's
+ * alias. An alias may name either text for "no project", as a key or as a target.
+ */
+export function shownName(aliases: Aliases, name: string): string {
+  const shown = name === HOME_PROJECT ? NO_PROJECT : name;
+  const wanted = aliases.names.get(shown) ?? aliases.names.get(name) ?? shown;
+  return wanted === HOME_PROJECT ? NO_PROJECT : wanted;
 }

@@ -7,7 +7,7 @@ import { handle } from './hook';
 import { Inbox } from './inbox';
 import { mergeCalls, scanChunks, type FileRef, type FileRows } from './judgment';
 import { FORMAT_VERSION, boardData, importHistory, readObservations, reconcile, type Observation } from './outcomes';
-import { ALIASES_FILE, HOME_PROJECT, NAME_MAX, aliasOf, nameOfRemote, noteStart, originUrl, projectAt, projectOfSession, projectResolver, readAliases, repositoryOf, resolveProject } from './project';
+import { ALIASES_FILE, HOME_PROJECT, NAME_MAX, NO_PROJECT, aliasOf, nameOfRemote, noteStart, originUrl, projectAt, projectOfSession, projectResolver, readAliases, repositoryOf, resolveProject, shownName } from './project';
 
 // Every repository here is a folder written by hand: no git program runs, as none runs in the hook.
 
@@ -181,18 +181,18 @@ describe('live: the project is fixed when the session starts', () => {
     const s = setup();
     s.send({ hook_event_name: 'SessionStart', cwd: s.app, source: 'startup' });
     s.ask(s.other);
-    s.ask(path.join(s.home, '.gstack', 'projects', 'someone'), 'toolu_2');
+    s.ask(path.join(s.home, '.gstack', 'projects', 'someone'), 'toolu_2'); // a started session keeps its project even there
     expect(s.projects()).toEqual(['app', 'app']);
     expect(fs.readFileSync(path.join(s.dir, STATE_DIR, 's1', 'project'), 'utf8')).toBe('app'); // the name only, never the address
   });
 
   test('a session started in the home directory: a question belongs to the repository it is asked in, else to the home directory', () => {
     const s = setup();
-    fs.mkdirSync(path.join(s.home, '.gstack', 'projects', 'someone'), { recursive: true });
+    fs.mkdirSync(path.join(s.home, 'notes', 'today'), { recursive: true });
     s.send({ hook_event_name: 'SessionStart', cwd: s.home, source: 'startup' });
     s.ask(s.home, 'toolu_1');
     s.ask(s.app, 'toolu_2');
-    s.ask(path.join(s.home, '.gstack', 'projects', 'someone'), 'toolu_3'); // a folder that is no repository names nothing
+    s.ask(path.join(s.home, 'notes', 'today'), 'toolu_3'); // a folder that is no repository names nothing
     s.ask(s.other, 'toolu_4');
     expect(s.projects()).toEqual([HOME_PROJECT, 'app', HOME_PROJECT, 'other']);
     expect(fs.readFileSync(path.join(s.dir, STATE_DIR, 's1', 'project'), 'utf8')).toBe(HOME_PROJECT);
@@ -258,8 +258,8 @@ describe('import: the project is where the session file says it started', () => 
   test('a session started in the home directory: each question by the repository it was asked in, else the home directory', async () => {
     const home = freshHome();
     const app = repo(path.join(home, 'Developer', 'app-folder'), 'git@github.com:owner/app.git');
-    fs.mkdirSync(path.join(home, '.gstack', 'projects', 'someone'), { recursive: true });
-    const rows = await scan([first(home), use('toolu_1', home, 1000), use('toolu_2', app, 2000), use('toolu_3', path.join(home, '.gstack', 'projects', 'someone'), 3000), use('toolu_4', path.join(home, 'Developer', 'renamed-away'), 4000)]);
+    fs.mkdirSync(path.join(home, 'notes', 'today'), { recursive: true });
+    const rows = await scan([first(home), use('toolu_1', home, 1000), use('toolu_2', app, 2000), use('toolu_3', path.join(home, 'notes', 'today'), 3000), use('toolu_4', path.join(home, 'Developer', 'renamed-away'), 4000)]);
     // the last folder no longer exists: it cannot be looked at, so it keeps its own name
     expect(mergeCalls([{ ref: ref('s1'), rows }], home).map((c) => c.project)).toEqual([HOME_PROJECT, 'app', HOME_PROJECT, 'renamed-away']);
   });
@@ -307,6 +307,98 @@ describe('import: the project is where the session file says it started', () => 
   });
 });
 
+describe('gstack state folders belong to the project they are kept for', () => {
+  const setup = () => {
+    const home = freshHome();
+    const state = path.join(home, '.gstack', 'projects');
+    for (const d of ['thing', path.join('thing', 'designs', 'v2'), path.basename(home), 'owner-thing']) fs.mkdirSync(path.join(state, d), { recursive: true });
+    return { home, state };
+  };
+
+  test('a question asked from a project\'s state folder, or anywhere inside it, belongs to that project', () => {
+    const { home, state } = setup();
+    expect(projectOfSession(home, path.join(state, 'thing'), home)).toBe('thing');
+    expect(projectOfSession(home, path.join(state, 'thing', 'designs', 'v2'), home)).toBe('thing');
+    expect(projectOfSession(home, `${path.join(state, 'thing')}/`, home)).toBe('thing');
+    expect(projectOfSession(home, path.join(state, 'owner-thing'), home)).toBe('owner-thing'); // the folder's name as it is; an alias can merge it
+    expect(projectOfSession(null, path.join(state, 'thing', 'designs', 'v2'), home)).toBe('thing'); // start not seen
+    expect(resolveProject(path.join(state, 'thing'), home)).toBe('thing'); // started there
+    expect(projectOfSession(home, path.join(state, 'gone-project', 'plans'), home)).toBe('gone-project'); // the path says it; the folder need not exist
+  });
+
+  test('the state folder of the home directory itself, the projects folder and the rest of the state root are no project', () => {
+    const { home, state } = setup();
+    fs.mkdirSync(path.join(home, '.gstack', 'analytics'), { recursive: true });
+    expect(projectOfSession(home, path.join(state, path.basename(home)), home)).toBe(HOME_PROJECT);
+    expect(projectOfSession(home, state, home)).toBe(HOME_PROJECT);
+    expect(projectOfSession(home, path.join(home, '.gstack', 'analytics'), home)).toBe(HOME_PROJECT);
+    expect(projectOfSession(home, path.join(home, '.gstack'), home)).toBe(HOME_PROJECT);
+    expect(resolveProject(`${state}-other`, home)).toBe(path.basename(`${state}-other`)); // a look-alike folder is not the projects folder
+  });
+
+  test('a session that started in a repository keeps it, even when it asks from another project\'s state folder', () => {
+    const { home, state } = setup();
+    const app = repo(path.join(home, 'Developer', 'app-folder'), 'https://h/o/app.git');
+    expect(projectOfSession(app, path.join(state, 'thing'), home)).toBe('app');
+  });
+
+  test('a state root set through the environment is used instead of ~/.gstack', () => {
+    const { home, state } = setup();
+    const elsewhere = path.join(home, 'state-elsewhere');
+    fs.mkdirSync(path.join(elsewhere, 'projects', 'moved'), { recursive: true });
+    const before = process.env.AGENT_INBOX_GSTACK_STATE_ROOT;
+    process.env.AGENT_INBOX_GSTACK_STATE_ROOT = `${elsewhere}/`;
+    try {
+      expect(projectOfSession(home, path.join(elsewhere, 'projects', 'moved'), home)).toBe('moved');
+      expect(projectOfSession(home, path.join(state, 'thing'), home)).toBe(HOME_PROJECT); // no longer a state folder: a plain folder in no repository
+    } finally {
+      if (before === undefined) delete process.env.AGENT_INBOX_GSTACK_STATE_ROOT;
+      else process.env.AGENT_INBOX_GSTACK_STATE_ROOT = before;
+    }
+  });
+});
+
+describe('"no project" is how the stored home marker is shown', () => {
+  const aliases = (names: Record<string, string>) => ({ state: 'ok' as const, names: new Map(Object.entries(names)) });
+
+  test('the marker keeps its stored text and reads "no project"; other names read as they are', () => {
+    expect(HOME_PROJECT).toBe('(home directory)'); // lines stored by every version mean the same
+    expect([shownName(aliases({}), HOME_PROJECT), shownName(aliases({}), 'thing')]).toEqual([NO_PROJECT, 'thing']);
+  });
+
+  test('an alias may use either text for it, as the name shown or as the name wanted', () => {
+    expect(shownName(aliases({ [NO_PROJECT]: 'misc' }), HOME_PROJECT)).toBe('misc');
+    expect(shownName(aliases({ [HOME_PROJECT]: 'misc' }), HOME_PROJECT)).toBe('misc');
+    expect(shownName(aliases({ scratch: HOME_PROJECT }), 'scratch')).toBe(NO_PROJECT);
+    expect(shownName(aliases({ scratch: NO_PROJECT }), 'scratch')).toBe(NO_PROJECT);
+  });
+});
+
+describe('import: a rule that returns a question to an earlier name', () => {
+  const T0 = Date.parse('2026-11-01T10:00:00.000Z');
+  test('the earlier line is written again, so it is the last; the next run adds nothing', async () => {
+    const home = freshHome();
+    const dir = path.join(home, '.agent-inbox');
+    const state = path.join(home, '.gstack', 'projects', 'thing');
+    fs.mkdirSync(state, { recursive: true });
+    const q = { question: 'Ship it?', header: 'Ship', options: [{ label: 'Yes (Recommended)', description: 'd' }, { label: 'No', description: 'd' }], multiSelect: false };
+    const lines = [
+      { type: 'user', timestamp: new Date(T0).toISOString(), cwd: home, message: { role: 'user', content: 'hello' } },
+      { type: 'assistant', timestamp: new Date(T0 + 1000).toISOString(), cwd: state, message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_1', name: 'AskUserQuestion', input: { questions: [q] } }] } },
+    ];
+    const root = path.join(home, 'transcripts');
+    write(path.join(root, '-folder', 's1.jsonl'), lines.map((l) => JSON.stringify(l) + '\n').join(''));
+    // 0.2.1 named it after the folder; 0.3.0 moved it to the home marker
+    const first: Observation = { v: FORMAT_VERSION, source: 'import', call: 'toolu_1', pos: 0, kind: 'ASKED', chip: 'Ship', title: 'Ship it?', session: 's1', project: 'thing', askTs: T0 + 1000, answerTs: null };
+    write(path.join(dir, 'outcomes.jsonl'), [first, { ...first, project: HOME_PROJECT }].map((l) => JSON.stringify(l) + '\n').join(''));
+    expect((await importHistory(dir, root, home)).added).toBe(1);
+    expect((await importHistory(dir, root, home)).added).toBe(0);
+    expect(readObservations(dir).observations.map((o) => o.project)).toEqual(['thing', HOME_PROJECT, 'thing']);
+    const board = boardData(dir, { now: T0 + 2000 });
+    expect([board.totals.questions, reconcile(readObservations(dir).observations, { now: T0 + 2000 }).map((r) => r.project)]).toEqual([1, ['thing']]);
+  });
+});
+
 describe('reading: the line written last names the project, and the user can rename', () => {
   const T0 = Date.parse('2026-11-01T10:00:00.000Z');
   const obs = (extra: Partial<Observation>): Observation => ({ v: FORMAT_VERSION, source: 'hook', call: 'c1', pos: 0, kind: 'ASKED', chip: 'x', title: 't', session: 's', project: 'p', askTs: T0, answerTs: null, ...extra });
@@ -335,10 +427,10 @@ describe('reading: the line written last names the project, and the user can ren
 
   test('aliases merge names on the board and leave the stored lines alone', () => {
     const dir = store(JSON.stringify({ 'alpha-old': 'beta', someone: HOME_PROJECT }));
-    expect(projectsOf(dir)).toEqual([['beta', 2], [HOME_PROJECT, 1]]);
+    expect(projectsOf(dir)).toEqual([['beta', 2], [NO_PROJECT, 1]]);
     const board = boardData(dir, { now: T0 + 5000 });
-    expect(board.totals.overrides.map((o) => o.project)).toEqual([HOME_PROJECT]);
-    expect(board.totals.sessions.map((s) => s.project).sort()).toEqual([HOME_PROJECT, 'beta', 'beta'].sort());
+    expect(board.totals.overrides.map((o) => o.project)).toEqual([NO_PROJECT]);
+    expect(board.totals.sessions.map((s) => s.project).sort()).toEqual([NO_PROJECT, 'beta', 'beta'].sort());
     expect(readObservations(dir).observations.map((o) => o.project)).toEqual(['alpha-old', 'beta', 'someone']);
   });
 

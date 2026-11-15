@@ -146,7 +146,7 @@ describe('reads', () => {
     const at = (session_id: string, cwd: string | null) => ({ ...idle(T0), session_id, cwd });
     fs.writeFileSync(path.join(d, 'events.jsonl'), jsonl([at('a', '/Users/someone/Developer/thing'), at('b', null), at('c', '/Users/someone')]));
     const m = await new Inbox({ dir: d, stateRoot: d, home: '/Users/someone', transcriptsDir: '/nonexistent' }).model(T0 + MIN);
-    expect(Object.fromEntries(m.waiting.map((s) => [s.session_id, s.project]))).toEqual({ a: 'thing', b: UNASSIGNED, c: '(home directory)' });
+    expect(Object.fromEntries(m.waiting.map((s) => [s.session_id, s.project]))).toEqual({ a: 'thing', b: UNASSIGNED, c: 'no project' });
   });
 });
 
