@@ -1,0 +1,97 @@
+/* The Nod Board. Every value here comes from DESIGN.md; change that file first. */
+@font-face{font-family:"IBM Plex Sans";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/ibm-plex-sans-latin-400-normal.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Sans";font-weight:600;font-style:normal;font-display:swap;src:url("/fonts/ibm-plex-sans-latin-600-normal.woff2") format("woff2")}
+@font-face{font-family:"IBM Plex Mono";font-weight:400;font-style:normal;font-display:swap;src:url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2")}
+
+:root{
+  color-scheme:light dark;
+  --page:#fff;--text:#1a1a1a;--muted:#666;--line:#e3e3e3;--accent:#b4005a;
+  --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;
+  --label:13px;--body:16px;--value:20px;--number:40px;
+  --sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root{--page:#121212;--text:#ececec;--muted:#9a9a9a;--line:#2c2c2c;--accent:#ff6fae}}
+
+*{box-sizing:border-box}
+html{scrollbar-color:var(--line) var(--page)}
+body{margin:0;background:var(--page);color:var(--text);font:400 var(--body)/1.5 var(--sans);font-variant-numeric:tabular-nums}
+::selection{background:var(--text);color:var(--page)}
+:focus-visible{outline:2px solid var(--text);outline-offset:2px}
+.noscript{max-width:60ch;margin:var(--s12) auto;padding:0 var(--s4)}
+
+.board{max-width:1200px;margin:0 auto;padding:var(--s4);display:grid;grid-template-columns:minmax(0,1fr);gap:0 var(--s8)}
+h1{font-size:var(--label);font-weight:600;margin:0 0 var(--s4);grid-column:1/-1}
+h2{font-size:var(--label);font-weight:600;margin:var(--s8) 0 var(--s2);padding-top:var(--s3);border-top:1px solid var(--line)}
+h3{font-size:var(--label);font-weight:400;color:var(--muted);margin:var(--s4) 0 var(--s1)}
+p{margin:0 0 var(--s2);max-width:70ch}
+ul{list-style:none;margin:0;padding:0}
+.muted{color:var(--muted)}
+.small{font-size:var(--label)}
+.quiet{color:var(--muted)}
+.accent{color:var(--accent)}
+
+/* Needs you */
+.needs h2{margin-top:0}
+.needs li{padding:var(--s2) 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
+.needs li.stale{color:var(--muted)}
+.needs .project{font-weight:600}
+.needs .message{margin:var(--s1) 0}
+.command{display:block;font:400 var(--label)/1.5 var(--mono);user-select:all;overflow-wrap:anywhere;margin-top:var(--s1);padding:var(--s2) 0;min-height:44px}
+
+/* Acceptance: the page's one anchor */
+main h2:first-child,.acceptance h2{margin-top:0}
+.headline{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s1) var(--s4);margin:0;max-width:none}
+.headline .number{font-size:var(--number);font-weight:600;line-height:1.1}
+.headline .basis{font-size:var(--value)}
+.headline .timing{font-size:var(--value);margin-left:auto}
+.framing{margin-top:var(--s2)}
+.lead{font-size:var(--value)}
+.banner{border-top:1px solid var(--text);border-bottom:1px solid var(--text);padding:var(--s2) 0;margin-bottom:var(--s4)}
+
+/* Trend */
+.trend svg{display:block;width:100%;height:auto;max-width:760px}
+.trend .axis{font:400 11px var(--sans);fill:var(--muted)}
+.trend .rule{stroke:var(--line);stroke-width:1}
+.trend .rule.strong{stroke:var(--muted)}
+.trend .link{stroke:var(--text);stroke-width:1.5}
+.trend .dot{fill:var(--text)}
+.trend .bar{fill:var(--muted)}
+.trend .bar.thin{fill:none;stroke:var(--muted);stroke-width:1}
+details{margin-top:var(--s2)}
+summary{cursor:pointer;font-size:var(--label);color:var(--muted);min-height:44px;display:flex;align-items:center}
+
+/* Tables */
+table{border-collapse:collapse;width:100%}
+th,td{text-align:left;font-weight:400;padding:var(--s2) var(--s4) var(--s2) 0;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
+thead th{font-size:var(--label);color:var(--muted)}
+.num{text-align:right;white-space:nowrap;padding-right:0}
+td.when{white-space:nowrap;color:var(--muted)}
+.weeks{max-width:360px}
+
+/* Capture health */
+footer{grid-column:1/-1;margin-top:var(--s12);padding-top:var(--s3);border-top:1px solid var(--line);font-size:var(--label);color:var(--muted)}
+footer dl{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s6);margin:0 0 var(--s2)}
+footer dt{display:inline}
+footer dt::after{content:": "}
+footer dd{display:inline;margin:0;color:var(--text)}
+.fresh{min-height:1.5em;margin:0}
+
+/* 1024px and up: two zones */
+@media (min-width:1024px){
+  .board{grid-template-columns:280px minmax(0,1fr);padding:var(--s6) var(--s8)}
+  .needs{grid-column:1}
+  main{grid-column:2}
+  .splits{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s8)}
+}
+/* under 640px: each table row becomes a two-line block */
+@media (max-width:639px){
+  .split thead,.list thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+  .split tr,.list tr{display:block;padding:var(--s2) 0;border-bottom:1px solid var(--line)}
+  .split th,.split td,.list th,.list td{display:inline;border:0;padding:0}
+  .split tbody th,.list tbody th{display:block}
+  .split td{margin-right:var(--s4);text-align:left}
+  .split td:last-child::after{content:" answers";color:var(--muted)}
+  .list td{margin-right:var(--s3);color:var(--muted);font-size:var(--label)}
+  .headline .timing{margin-left:0}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

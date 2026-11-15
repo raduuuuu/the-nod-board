@@ -1,0 +1,17 @@
+{
+  "name": "nod-board",
+  "owner": {
+    "name": "Radu Diaconescu"
+  },
+  "plugins": [
+    {
+      "name": "nod-board",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/raduuuuu/the-nod-board.git",
+        "ref": "release"
+      },
+      "description": "The Nod Board: a local dashboard for Claude Code sessions. See what needs you now, and how often you nod along with the agent's recommendation."
+    }
+  ]
+}

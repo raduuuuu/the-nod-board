@@ -1,0 +1,20 @@
+{
+  "name": "nod-board",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "bun test",
+    "build": "bun scripts/build.ts",
+    "start": "bun server.ts",
+    "import": "bun scripts/import.ts"
+  },
+  "dependencies": {
+    "preact": "11.2.0"
+  },
+  "devDependencies": {
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0",
+    "preact-render-to-string": "6.8.3"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,79 @@
+name: release
+
+# Run by hand from the Actions tab, on main, after raising the version in
+# .claude-plugin/plugin.json. It is the only thing that writes the release branch and tags.
+#
+#   test -> build -> build again and compare -> commit source + dist to `release`
+#        -> check out that exact commit fresh, rebuild, compare -> tag v<version> -> push
+#
+# The marketplace entry points at the `release` branch, so users only ever get a build that
+# this workflow produced and verified against its own source.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+
+      - name: Read the version and refuse to release it twice
+        id: version
+        run: |
+          version=$(bun -e 'console.log(JSON.parse(require("fs").readFileSync(".claude-plugin/plugin.json", "utf8")).version)')
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "version '$version' in .claude-plugin/plugin.json is not x.y.z" >&2; exit 1 ;;
+          esac
+          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null; then
+            echo "v$version is already released: raise the version in .claude-plugin/plugin.json first" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - run: bun test
+
+      - name: Build, then build again and compare
+        run: |
+          bun run build
+          bun scripts/verify-dist.ts dist
+
+      - name: Commit source and build to the release branch
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          source_sha=$(git rev-parse HEAD)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C release
+          git add --force dist
+          git commit -m "Release v$VERSION" -m "Built by CI from $source_sha."
+
+      - name: Verify the exact commit that will be tagged
+        run: |
+          git worktree add "$RUNNER_TEMP/release-check" HEAD
+          cd "$RUNNER_TEMP/release-check"
+          bun install --frozen-lockfile
+          bun scripts/verify-dist.ts dist
+
+      - name: Tag and publish
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          git tag "v$VERSION"
+          git push --force-with-lease origin release
+          git push origin "v$VERSION"

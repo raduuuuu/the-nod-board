@@ -1,0 +1,16 @@
+{
+  "name": "nod-board",
+  "description": "The Nod Board: a local dashboard for Claude Code sessions. See what needs you now, and how often you nod along with the agent's recommendation. Nothing leaves your machine.",
+  "version": "0.1.1",
+  "license": "MIT",
+  "keywords": [
+    "dashboard",
+    "hooks",
+    "analytics",
+    "local"
+  ],
+  "author": {
+    "name": "Radu Diaconescu"
+  },
+  "repository": "https://github.com/raduuuuu/the-nod-board"
+}
