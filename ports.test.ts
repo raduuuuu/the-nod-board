@@ -376,3 +376,35 @@ describe('the hook and the commands with a port the server chose', () => {
     expect((await statusLines(envIn(dir), deps(() => 'foreign').d, io))[1]).toBe('running: no. Start it with /nod-board:open');
   });
 });
+
+describe('/nod-board:open after an update, with a real older server still running', () => {
+  test('open records the version it wants, the older server leaves, and the new one is opened', async () => {
+    const dir = path.join(tmp(), 'inbox');
+    const [port] = freePorts(1);
+    const env = { HOME: path.dirname(dir), AGENT_INBOX_DIR: dir, AGENT_INBOX_PORT: String(port) };
+    const left: string[] = [];
+    // What is running right after `claude plugin update`: the previous version, wanted by its own last session start.
+    writeWantedVersion(dir, '1.0.0', '/older-plugin');
+    const older = await serve({ version: '1.0.0', port, inbox: inboxIn(dir), compact: false, onLeave: (r) => left.push(r) });
+    stops.push(() => older?.stop());
+    expect((await healthOf(port))?.version).toBe('1.0.0');
+
+    let newer: Awaited<ReturnType<typeof serve>> = null;
+    const d: StartDeps = {
+      root: '/newer-plugin',
+      version: '2.0.0',
+      probe: (p, wanted) => probeServer(p, wanted, fetch, instanceId(dir)),
+      // The starter launches server.ts; here that is the newer server in this process.
+      launch: () => void serve({ version: '2.0.0', port, inbox: inboxIn(dir), compact: false, onLeave: () => {} }).then((s) => (newer = s)),
+      sleep,
+    };
+    stops.push(() => newer?.stop());
+    const opened: string[] = [];
+    const io: BoardIo = { openInBrowser: (url) => (opened.push(url), true), fetchJson: async () => ({}), now: () => Date.now() };
+
+    expect(await openBoard(env, d, io)).toEqual([`The Nod Board: opened http://127.0.0.1:${port}/`]);
+    expect(left).toEqual(['stale']);
+    expect((await healthOf(port))?.version).toBe('2.0.0');
+    expect(opened).toEqual([`http://127.0.0.1:${port}/`]);
+  }, 15_000);
+});

@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type ServerState, type StartDeps } from '../hook';
-import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort } from '../inbox';
+import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
 
 type Env = Record<string, string | undefined>;
@@ -48,6 +48,13 @@ export function realIo(): BoardIo {
 async function ensureRunning(env: Env, deps: StartDeps): Promise<ServerState> {
   const dir = dataDir(env);
   const fixed = explicitPort(env) !== null;
+  // Say which version is wanted, as a session start does. Without this an older server that is
+  // still running is never told to leave, and the starter waits for it in vain.
+  try {
+    writeWantedVersion(dir, deps.version, deps.root);
+  } catch {
+    // Not fatal: with nothing running the server can still be started.
+  }
   let state = await deps.probe(knownPort(env, dir), deps.version);
   if (state === 'current' || (state === 'foreign' && fixed)) return state;
   await runStarter(env, deps);
