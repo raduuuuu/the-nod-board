@@ -1,22 +1,26 @@
 /**
  * board.tsx: the whole dashboard as pure components (DESIGN.md).
  *
- *   wide (1024px and up)                      narrow
- *   +-------------+------------------------+   Needs you
- *   | NEEDS YOU   | acceptance number      |   acceptance number
- *   | (aside)     | trend                  |   trend
- *   |             | where you overrode     |   where you overrode
- *   |             | by project | by label  |   by project, by label
- *   +-------------+------------------------+   capture health
- *   | capture health                       |
- *   +--------------------------------------+
+ *   wide (1024px and up)                          narrow
+ *   +-------------+----------------------------+   Needs you
+ *   | NEEDS YOU   | acceptance number          |   acceptance number
+ *   | (aside)     |   median | fast | 7 days   |     three figures, one per line
+ *   |             | trend                      |   trend
+ *   |             | recent sessions (10)       |   recent sessions
+ *   |             | where you overrode (10,    |   where you overrode
+ *   |             |   then "Show all N")       |
+ *   |             | splits: by project         |   splits
+ *   +-------------+----------------------------+   capture health
+ *   | capture health                           |
+ *   +------------------------------------------+
+ *   The splits sit two to a row from 1280px.
  *
  * Every string from a session (titles, messages, project names) is rendered as text by Preact;
  * nothing here builds HTML from data. The components take plain props, so each state in the
  * design's state table is one render call in the tests.
  */
 import type { InboxPayload, JudgmentPayload, SessionPayload } from '../server';
-import { ago, clock, count, dayTime, duration, share } from './format';
+import { ago, clock, count, dayTime, duration, percent, share } from './format';
 import { freshness, type Link } from './poll';
 import { Trend } from './trend';
 
@@ -31,7 +35,12 @@ export interface BoardProps {
 }
 
 const DASH = '–';
+const TOO_FEW = 'too few';
 export const IMPORT_COMMAND = '/nod-board:import';
+/** Rows shown at once in the two lists; the overrides list offers the rest on request. */
+export const LIST_ROWS = 10;
+/** A split table longer than this folds its "too few" rows into one closing line. */
+export const FOLD_ABOVE = 6;
 
 function Command(props: { text: string }) {
   // Focusable and selected whole on click, so it can be copied with the keyboard or the mouse.
@@ -136,6 +145,24 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
   const shown = share(j.overall, j.min_n);
   const c = j.counts;
   const excluded = c.EXCLUDED_MULTI + c.EXCLUDED_NO_REC;
+  // Only what is there: a count of zero says nothing.
+  const apart = [
+    c.DISMISSED ? `dismissed ${count(c.DISMISSED)}${j.inferred_dismissed ? ` (${count(j.inferred_dismissed)} inferred)` : ''}` : '',
+    c.UNANSWERED ? `unanswered ${count(c.UNANSWERED)}` : '',
+    c.UNDECODED ? `unreadable ${count(c.UNDECODED)}` : '',
+    excluded ? `excluded ${count(excluded)}` : '',
+  ].filter(Boolean);
+  const t = j.timing;
+  // The three figures beside the anchor. Each share keeps its count and the too-few rule.
+  const figures: { label: string; value: string; basis?: string }[] = [
+    { label: 'median answer', value: t.medianMs === null ? DASH : duration(t.medianMs) },
+    {
+      label: `under ${duration(j.fast_ms)}`,
+      value: t.n === 0 ? DASH : t.n < j.min_n ? TOO_FEW : percent(t.fast, t.n),
+      basis: t.n === 0 ? undefined : `${count(t.fast)} of ${count(t.n)}`,
+    },
+    { label: 'last 7 days', value: share(j.recent, j.min_n) ?? TOO_FEW, basis: `${count(j.recent.agreed)} of ${count(j.recent.answered)}` },
+  ];
   return (
     <section class="acceptance" aria-labelledby="acc-h">
       <h2 id="acc-h">Recommendations taken</h2>
@@ -145,50 +172,58 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
       ) : (
         <>
           <p class="headline">
-            <span class="number">{shown ?? 'too few'}</span>
+            <span class="number">{shown ?? TOO_FEW}</span>
             <span class="basis">
               took the recommendation, {count(j.overall.agreed)} of {count(j.overall.answered)}
             </span>
-            {j.timing.medianMs !== null ? <span class="timing">median {duration(j.timing.medianMs)} to answer</span> : null}
           </p>
+          <dl class="figures">
+            {figures.map((f) => (
+              <div>
+                <dt>
+                  {f.label}
+                  {f.basis ? <span class="count">{f.basis}</span> : null}
+                </dt>
+                <dd>{f.value}</dd>
+              </div>
+            ))}
+          </dl>
           <p class="muted framing">
             A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.
           </p>
         </>
       )}
-      <p class="muted small">
-        Not in the share: dismissed {count(c.DISMISSED)}
-        {j.inferred_dismissed ? ` (${count(j.inferred_dismissed)} inferred)` : ''} · unanswered {count(c.UNANSWERED)} · unreadable{' '}
-        {count(c.UNDECODED)} · excluded {count(excluded)}
-      </p>
+      {apart.length ? <p class="muted small">Not in the share: {apart.join(' · ')}</p> : null}
     </section>
   );
 }
 
-export function Overrides(props: { judgment: JudgmentPayload | null; timeZone?: string }) {
-  const j = props.judgment;
-  if (j && j.overall.answered === 0) return null;
+/** The sessions with the latest answers: counts, not a share, since one session rarely has enough answers for one. */
+export function RecentSessions(props: { judgment: JudgmentPayload | null; timeZone?: string }) {
+  const rows = (props.judgment?.sessions ?? []).slice(0, LIST_ROWS);
+  if (props.judgment && !rows.length) return null;
   return (
-    <section aria-labelledby="over-h">
-      <h2 id="over-h">Where you overrode</h2>
-      {j && j.overrides.length === 0 ? <p class="quiet">No overrides yet.</p> : null}
-      {j && j.overrides.length ? (
+    <section aria-labelledby="sess-h">
+      <h2 id="sess-h">Recent sessions</h2>
+      {rows.length ? (
         <table class="list">
           <thead>
             <tr>
-              <th scope="col">When</th>
+              <th scope="col">Last answer</th>
               <th scope="col">Project</th>
-              <th scope="col">Question</th>
-              <th scope="col">Answer</th>
+              <th scope="col">Taken</th>
+              <th scope="col">Answer time</th>
             </tr>
           </thead>
           <tbody>
-            {j.overrides.map((o) => (
+            {rows.map((s) => (
               <tr>
-                <td class="when">{dayTime(o.ts, props.timeZone)}</td>
-                <td>{o.project}</td>
-                <th scope="row">{o.title}</th>
-                <td>{o.typed ? 'typed' : 'other option'}</td>
+                <td class="when">{dayTime(s.lastTs, props.timeZone)}</td>
+                <th scope="row">{s.project}</th>
+                <td>
+                  {count(s.agreed)} of {count(s.answered)}
+                </td>
+                <td>{s.timed ? duration(s.medianMs) : DASH}</td>
               </tr>
             ))}
           </tbody>
@@ -198,30 +233,107 @@ export function Overrides(props: { judgment: JudgmentPayload | null; timeZone?: 
   );
 }
 
-function Split(props: { id: string; title: string; rows: { name: string; agreed: number; answered: number }[]; minN: number; loaded: boolean }) {
+type Override = JudgmentPayload['overrides'][number];
+
+function OverrideTable(props: { rows: Override[]; timeZone?: string; headHidden?: boolean }) {
+  return (
+    <table class="list">
+      <thead class={props.headHidden ? 'sr-only' : undefined}>
+        <tr>
+          <th scope="col">When</th>
+          <th scope="col">Project</th>
+          <th scope="col">Question</th>
+          <th scope="col">Answer</th>
+        </tr>
+      </thead>
+      <tbody>
+        {props.rows.map((o) => (
+          <tr>
+            <td class="when">{dayTime(o.ts, props.timeZone)}</td>
+            <td>{o.project}</td>
+            <th scope="row">{o.title}</th>
+            <td>{o.typed ? 'typed' : 'other option'}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function Overrides(props: { judgment: JudgmentPayload | null; timeZone?: string }) {
+  const j = props.judgment;
+  if (j && j.overall.answered === 0) return null;
+  const all = j?.overrides ?? [];
+  const rest = all.slice(LIST_ROWS);
+  return (
+    <section aria-labelledby="over-h">
+      <h2 id="over-h">Where you overrode</h2>
+      {j && all.length === 0 ? <p class="quiet">No overrides yet.</p> : null}
+      {all.length ? <OverrideTable rows={all.slice(0, LIST_ROWS)} timeZone={props.timeZone} /> : null}
+      {rest.length ? (
+        // The browser's own disclosure: keyboard and screen reader support come with it, and its
+        // open state lives in the element, so the 5 second refresh does not close it.
+        <details class="more">
+          <summary>
+            <span class="closed">Show all {count(all.length)}</span>
+            <span class="open">Show {count(LIST_ROWS)}</span>
+          </summary>
+          <OverrideTable rows={rest} timeZone={props.timeZone} headHidden />
+        </details>
+      ) : null}
+    </section>
+  );
+}
+
+export interface SplitRow {
+  name: string;
+  agreed: number;
+  answered: number;
+  medianMs: number | null;
+  /** Question prompts with a measured answer time. */
+  timed: number;
+}
+
+/**
+ * One split of the share. A row under `minN` answers has no share ("too few"); in a table longer
+ * than FOLD_ABOVE those rows become one closing line that keeps their total, so the counts on the
+ * page still add up. A median answer time is shown only with `minN` timed prompts behind it.
+ */
+export function Split(props: { id: string; title: string; rows: SplitRow[]; minN: number; loaded: boolean }) {
   if (props.loaded && !props.rows.length) return null;
+  const fold = props.rows.length > FOLD_ABOVE;
+  const shown = fold ? props.rows.filter((r) => r.answered >= props.minN) : props.rows;
+  const folded = fold ? props.rows.filter((r) => r.answered < props.minN) : [];
+  const foldedAnswers = folded.reduce((n, r) => n + r.answered, 0);
   return (
     <section aria-labelledby={props.id}>
       <h2 id={props.id}>{props.title}</h2>
-      {props.rows.length ? (
+      {shown.length ? (
         <table class="split">
           <thead>
             <tr>
               <th scope="col">Name</th>
               <th scope="col" class="num">Share</th>
               <th scope="col" class="num">Answers</th>
+              <th scope="col" class="num">Answer time</th>
             </tr>
           </thead>
           <tbody>
-            {props.rows.map((r) => (
+            {shown.map((r) => (
               <tr>
                 <th scope="row">{r.name}</th>
-                <td class="num">{share(r, props.minN) ?? 'too few'}</td>
+                <td class="num">{share(r, props.minN) ?? TOO_FEW}</td>
                 <td class="num">{count(r.answered)}</td>
+                <td class="num">{r.timed >= props.minN ? duration(r.medianMs) : DASH}</td>
               </tr>
             ))}
           </tbody>
         </table>
+      ) : null}
+      {folded.length ? (
+        <p class="muted small folded">
+          {count(folded.length)} more with too few answers ({count(foldedAnswers)} {foldedAnswers === 1 ? 'answer' : 'answers'} in total)
+        </p>
       ) : null}
     </section>
   );
@@ -267,11 +379,17 @@ export function Board(props: BoardProps) {
       <main>
         <Acceptance judgment={j} timeZone={props.timeZone} />
         {hasNumbers ? <Trend weekly={j.weekly} minN={j.min_n} weeks={props.weeks} timeZone={props.timeZone} /> : null}
+        {!j || hasNumbers ? <RecentSessions judgment={j} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? <Overrides judgment={j} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? (
           <div class="splits">
-            <Split id="proj-h" title="By project" loaded={!!j} minN={j?.min_n ?? 0} rows={(j?.projects ?? []).map((p) => ({ name: p.project, agreed: p.agreed, answered: p.answered }))} />
-            <Split id="chip-h" title="By label" loaded={!!j} minN={j?.min_n ?? 0} rows={(j?.chips ?? []).map((p) => ({ name: p.label, agreed: p.agreed, answered: p.answered }))} />
+            <Split
+              id="proj-h"
+              title="By project"
+              loaded={!!j}
+              minN={j?.min_n ?? 0}
+              rows={(j?.projects ?? []).map((p) => ({ name: p.project, agreed: p.agreed, answered: p.answered, medianMs: p.medianMs, timed: p.timed }))}
+            />
           </div>
         ) : null}
       </main>

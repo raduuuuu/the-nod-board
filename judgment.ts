@@ -50,13 +50,12 @@ export const ANSWERED: ReadonlySet<Outcome> = new Set<Outcome>(['AGREED', 'OVERR
 /** Below this many answered questions a rate is shown as "too few". */
 export const MIN_N = 5;
 export const FAST_ANSWER_MS = 15_000;
-export const TOP_CHIPS = 15;
+/** "The last 7 days": the rolling 168 hours before now, by the time of the answer. */
+export const RECENT_WINDOW_MS = 7 * 24 * 3_600_000;
 export const RECENT_SESSIONS = 20;
 export const MAX_OVERRIDES = 50;
 export const TITLE_MAX = 120;
 export const HOME_PROJECT = '(home directory)';
-export const NO_CHIP = '(no label)';
-export const OTHER_CHIP = 'other';
 
 // ---------------------------------------------------------------- transcript line shapes
 
@@ -377,15 +376,16 @@ export interface Timing {
 export interface ProjectRow extends Rate {
   project: string;
   medianMs: number | null;
-}
-export interface ChipRow extends Rate {
-  label: string;
+  /** Question prompts with a measured answer time behind medianMs. */
+  timed: number;
 }
 export interface SessionRow extends Rate {
   session: string;
   project: string;
+  /** When the session's latest answer arrived (the time it was asked, when the answer time is not known). */
   lastTs: number | null;
   medianMs: number | null;
+  timed: number;
 }
 export interface OverrideRow {
   ts: number | null;
@@ -401,10 +401,18 @@ export interface Totals {
   calls: number;
   questions: number;
   timing: Timing;
+  /** Answered in the last 7 days (RECENT_WINDOW_MS); zeros when aggregate() was not told the time. */
+  recent: Rate;
   projects: ProjectRow[];
-  chips: ChipRow[];
   sessions: SessionRow[];
   overrides: OverrideRow[];
+}
+
+export interface AggregateOptions {
+  /** The current time; without it nothing counts as recent. */
+  now?: number;
+  /** When a call was answered, when a source saw that; aggregate() falls back to the time it was asked. */
+  answeredAt?: (call: string) => number | null;
 }
 
 export function median(values: readonly number[]): number | null {
@@ -485,11 +493,12 @@ export function rowsFromCalls(calls: readonly MergedCall[]): (QuestionRow & { co
   return rows;
 }
 
-export function aggregate(rows: readonly QuestionRow[]): Totals {
+export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions = {}): Totals {
   const counts = Object.fromEntries(OUTCOMES.map((o) => [o, 0])) as Record<Outcome, number>;
   const overall = bucket();
+  const recent = bucket();
+  const recentFrom = opts.now === undefined ? Infinity : opts.now - RECENT_WINDOW_MS;
   const projects = new Map<string, Bucket>();
-  const chips = new Map<string, Bucket>();
   const sessions = new Map<string, Bucket & { session: string; project: string }>();
   const overrides: OverrideRow[] = [];
   const byCall = new Map<string, QuestionRow[]>();
@@ -504,17 +513,19 @@ export function aggregate(rows: readonly QuestionRow[]): Totals {
     const sessionKey = `${first.project}/${first.session}`;
     let sess = sessions.get(sessionKey);
     let counted = false;
+    // The answer belongs to the call: every question of one prompt was answered at the same moment.
+    const answeredTs = opts.answeredAt?.(first.call) ?? first.askTs;
+    const isRecent = answeredTs !== null && opts.now !== undefined && answeredTs > recentFrom && answeredTs <= opts.now;
     for (const row of callRows) {
       counts[row.outcome]++;
       if (!ANSWERED.has(row.outcome)) continue;
       counted = true;
       if (!sess) sessions.set(sessionKey, (sess = { ...bucket(), session: first.session, project: first.project }));
-      const chip = row.chip.trim().toLowerCase() || NO_CHIP;
-      for (const b of [overall, bump(projects, row.project), bump(chips, chip), sess]) {
+      for (const b of isRecent ? [overall, bump(projects, row.project), sess, recent] : [overall, bump(projects, row.project), sess]) {
         b.answered++;
         if (row.outcome === 'AGREED') b.agreed++;
       }
-      if (row.askTs !== null && (sess.lastTs === null || row.askTs > sess.lastTs)) sess.lastTs = row.askTs;
+      if (answeredTs !== null && (sess.lastTs === null || answeredTs > sess.lastTs)) sess.lastTs = answeredTs;
       if (row.outcome !== 'AGREED')
         overrides.push({ ts: row.askTs, project: row.project, title: row.title, typed: row.outcome === 'OVERRODE_TYPED' });
     }
@@ -532,11 +543,6 @@ export function aggregate(rows: readonly QuestionRow[]): Totals {
   const neg = (n: number | null) => (n === null ? null : -n);
   const newestFirst = (a: { ts: number | null }, b: { ts: number | null }) => nullsLast(neg(a.ts), neg(b.ts));
   const bySize = <T extends Rate>(a: T, b: T) => b.answered - a.answered;
-  const chipRows = [...chips].map(([label, b]) => ({ label, agreed: b.agreed, answered: b.answered })).sort((a, b) => bySize(a, b) || a.label.localeCompare(b.label));
-  const top = chipRows.slice(0, TOP_CHIPS);
-  const rest = chipRows.slice(TOP_CHIPS);
-  if (rest.length)
-    top.push({ label: OTHER_CHIP, agreed: rest.reduce((n, r) => n + r.agreed, 0), answered: rest.reduce((n, r) => n + r.answered, 0) });
 
   return {
     overall: { agreed: overall.agreed, answered: overall.answered },
@@ -548,12 +554,12 @@ export function aggregate(rows: readonly QuestionRow[]): Totals {
       medianMs: median(overall.elapsed),
       fast: overall.elapsed.filter((ms) => ms < FAST_ANSWER_MS).length,
     },
+    recent: { agreed: recent.agreed, answered: recent.answered },
     projects: [...projects]
-      .map(([project, b]) => ({ project, agreed: b.agreed, answered: b.answered, medianMs: median(b.elapsed) }))
+      .map(([project, b]) => ({ project, agreed: b.agreed, answered: b.answered, medianMs: median(b.elapsed), timed: b.elapsed.length }))
       .sort((a, b) => bySize(a, b) || a.project.localeCompare(b.project)),
-    chips: top,
     sessions: [...sessions.values()]
-      .map((s) => ({ session: s.session, project: s.project, lastTs: s.lastTs, agreed: s.agreed, answered: s.answered, medianMs: median(s.elapsed) }))
+      .map((s) => ({ session: s.session, project: s.project, lastTs: s.lastTs, agreed: s.agreed, answered: s.answered, medianMs: median(s.elapsed), timed: s.elapsed.length }))
       .sort((a, b) => newestFirst({ ts: a.lastTs }, { ts: b.lastTs }) || a.session.localeCompare(b.session))
       .slice(0, RECENT_SESSIONS),
     overrides: overrides.sort(newestFirst).slice(0, MAX_OVERRIDES),

@@ -3,11 +3,11 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { render } from 'preact-render-to-string';
-import { Acceptance, Board, CaptureHealth, IMPORT_COMMAND, NeedsYou, Overrides, type BoardProps } from './app/board';
+import { Acceptance, Board, CaptureHealth, FOLD_ABOVE, IMPORT_COMMAND, LIST_ROWS, NeedsYou, Overrides, RecentSessions, Split, type BoardProps, type SplitRow } from './app/board';
 import { ago, count, dayTime, duration, percent, share } from './app/format';
 import { FAILURES_BEFORE_UNREACHABLE, SLOW_FIRST_MS, freshness, initialLink, onFailure, onSuccess } from './app/poll';
 import { Trend, type WeekPoint } from './app/trend';
-import { MIN_N, OUTCOMES } from './judgment';
+import { FAST_ANSWER_MS, MIN_N, OUTCOMES } from './judgment';
 import { CSP, makeHandler, type InboxPayload, type JudgmentPayload, type SessionPayload } from './server';
 import { Inbox } from './inbox';
 
@@ -44,18 +44,19 @@ const judgment = (extra: Partial<JudgmentPayload> = {}): JudgmentPayload => ({
   now: NOW,
   version: '0.1.0',
   min_n: MIN_N,
+  fast_ms: FAST_ANSWER_MS,
   live_since: NOW - 3 * 24 * 3_600_000,
   overall: { agreed: 1281, answered: 1387 },
   counts: { ...emptyCounts, AGREED: 1281, OVERRODE_OPTION: 102, OVERRODE_TYPED: 4, DISMISSED: 53, EXCLUDED_MULTI: 15, EXCLUDED_NO_REC: 90 },
   calls: 1413,
   questions: 1545,
   timing: { n: 1362, medianMs: 41_654, fast: 274 },
+  recent: { agreed: 124, answered: 138 },
   projects: [
-    { project: 'thing', agreed: 90, answered: 100, medianMs: 30_000 },
-    { project: 'tiny', agreed: 2, answered: 2, medianMs: 9_000 },
+    { project: 'thing', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 },
+    { project: 'tiny', agreed: 2, answered: 2, medianMs: 9_000, timed: 2 },
   ],
-  chips: [{ label: 'approach', agreed: 7, answered: 7 }],
-  sessions: [],
+  sessions: [{ session: 'sess-1', project: 'thing', lastTs: NOW - 3_600_000, agreed: 9, answered: 11, medianMs: 101_000, timed: 9 }],
   overrides: [
     { ts: NOW - 3_600_000, project: 'thing', title: 'Rename the module?', typed: false },
     { ts: NOW - 7_200_000, project: 'thing', title: 'Which name?', typed: true },
@@ -124,7 +125,7 @@ describe('first paint (no data yet)', () => {
   const html = render(<Board inbox={null} judgment={null} link={initialLink(NOW)} now={NOW} weeks={12} timeZone={UTC} />);
 
   test('the final frame is already there: every heading, a dash for the number, nothing that spins', () => {
-    for (const heading of ['The Nod Board', 'Needs you', 'Recommendations taken', 'Where you overrode', 'By project', 'By label']) expect(html).toContain(heading);
+    for (const heading of ['The Nod Board', 'Needs you', 'Recommendations taken', 'Recent sessions', 'Where you overrode', 'By project']) expect(html).toContain(heading);
     expect(html).toContain('<span class="number">–</span>');
     expect(text(html)).toContain('live since –');
     for (const moving of ['spinner', 'skeleton', 'loading', 'animate']) expect(html.toLowerCase()).not.toContain(moving);
@@ -189,13 +190,16 @@ describe('the acceptance number', () => {
     expect(html).not.toContain('%');
   });
 
-  test('the number, what it rests on, the answer time on the same row, and the framing sentence', () => {
+  test('the number, what it rests on, three figures under it with their counts, and the framing sentence', () => {
     const html = render(<Acceptance judgment={judgment()} timeZone={UTC} />);
     expect(html).toContain('<span class="number">92%</span>');
     const t = text(html);
-    expect(t).toContain('92% took the recommendation, 1,281 of 1,387 median 42 s to answer');
+    expect(t).toContain('92% took the recommendation, 1,281 of 1,387 median answer 42 s under 15 s 274 of 1,362 20% last 7 days 124 of 138 90%');
+    expect((html.match(/class="number"/g) ?? []).length).toBe(1); // one anchor
     expect(t).toContain('A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.');
-    expect(t).toContain('Not in the share: dismissed 53 · unanswered 0 · unreadable 0 · excluded 105');
+    expect(t).toContain('Not in the share: dismissed 53 · excluded 105');
+    expect(t).not.toContain('unanswered');
+    expect(t).not.toContain('unreadable');
     expect(html).not.toContain('banner');
   });
 
@@ -203,7 +207,7 @@ describe('the acceptance number', () => {
     const html = render(<Acceptance judgment={judgment({ overall: { agreed: 3, answered: 4 } })} timeZone={UTC} />);
     expect(html).toContain('<span class="number">too few</span>');
     expect(text(html)).toContain('took the recommendation, 3 of 4');
-    expect(html).not.toMatch(/\d%/);
+    expect(html).not.toMatch(/class="number">\d/);
   });
 
   test('questions but none answered: a plain line, no number and no NaN', () => {
@@ -287,10 +291,98 @@ describe('overrides and splits', () => {
 
   test('splits: a share with its count, "too few" under five, and real table headers', () => {
     const html = board();
-    expect(html).toContain('<th scope="row">thing</th><td class="num">90%</td><td class="num">100</td>');
-    expect(html).toContain('<th scope="row">tiny</th><td class="num">too few</td><td class="num">2</td>');
-    expect(html).toContain('<th scope="row">approach</th><td class="num">100%</td><td class="num">7</td>');
+    expect(html).toContain('<th scope="row">thing</th><td class="num">90%</td><td class="num">100</td><td class="num">30 s</td>');
+    expect(html).toContain('<th scope="row">tiny</th><td class="num">too few</td><td class="num">2</td><td class="num">–</td>');
+    expect(html).not.toContain('By label');
+    expect(html).toContain('<th scope="col" class="num">Answer time</th>');
     expect(html).toContain('<th scope="col" class="num">Share</th>');
+  });
+});
+
+describe('the three figures', () => {
+  const figures = (extra: Partial<JudgmentPayload>) => text(render(<Acceptance judgment={judgment(extra)} timeZone={UTC} />));
+
+  test('no timed answer: dashes for both time figures, and no count that would read 0 of 0', () => {
+    const t = figures({ timing: { n: 0, medianMs: null, fast: 0 } });
+    expect(t).toContain('median answer – under 15 s – last 7 days');
+  });
+
+  test('fewer than five timed answers, or five answers in the last 7 days: "too few" with the count', () => {
+    const t = figures({ timing: { n: 4, medianMs: 9_000, fast: 3 }, recent: { agreed: 2, answered: 3 } });
+    expect(t).toContain('under 15 s 3 of 4 too few');
+    expect(t).toContain('last 7 days 2 of 3 too few');
+    expect(t).not.toContain('75%');
+    expect(t).not.toContain('67%');
+  });
+
+  test('nothing set apart: the "Not in the share" line is absent', () => {
+    expect(figures({ counts: { ...emptyCounts, AGREED: 9, OVERRODE_OPTION: 1 } })).not.toContain('Not in the share');
+  });
+});
+
+describe('recent sessions', () => {
+  const sessionRow = (i: number, extra = {}) => ({ session: `s${i}`, project: `proj ${i}`, lastTs: NOW - i * 3_600_000, agreed: i, answered: i + 1, medianMs: 20_000, timed: 1, ...extra });
+
+  test('when it last answered, the project, counts instead of a share, and the answer time', () => {
+    const t = text(render(<RecentSessions judgment={judgment()} timeZone={UTC} />));
+    expect(t).toBe('Recent sessions Last answer Project Taken Answer time Nov 12, 13:02 thing 9 of 11 101 s');
+  });
+
+  test('ten at most, none: the block is absent, no timed answer: a dash', () => {
+    const many = render(<RecentSessions judgment={judgment({ sessions: Array.from({ length: 14 }, (_, i) => sessionRow(i)) })} timeZone={UTC} />);
+    expect((many.match(/<tr>/g) ?? []).length).toBe(1 + LIST_ROWS);
+    expect(render(<RecentSessions judgment={judgment({ sessions: [] })} timeZone={UTC} />)).toBe('');
+    expect(text(render(<RecentSessions judgment={judgment({ sessions: [sessionRow(1, { timed: 0, medianMs: null })] })} timeZone={UTC} />))).toContain('1 of 2 –');
+  });
+});
+
+describe('the overrides list shows ten and offers the rest', () => {
+  const overrides = (n: number) => Array.from({ length: n }, (_, i) => ({ ts: NOW - i * 60_000, project: 'thing', title: `Question ${i}?`, typed: false }));
+
+  test('ten or fewer: every row, and no control', () => {
+    const html = render(<Overrides judgment={judgment({ overrides: overrides(LIST_ROWS) })} timeZone={UTC} />);
+    expect((html.match(/<th scope="row">/g) ?? []).length).toBe(LIST_ROWS);
+    expect(html).not.toContain('<details');
+  });
+
+  test('more than ten: the ten newest, then a disclosure holding the rest with both of its labels', () => {
+    const html = render(<Overrides judgment={judgment({ overrides: overrides(12) })} timeZone={UTC} />);
+    const [first, rest] = html.split('<details class="more">');
+    expect((first.match(/<th scope="row">/g) ?? []).length).toBe(LIST_ROWS);
+    expect(first).toContain('Question 9?');
+    expect(first).not.toContain('Question 10?');
+    expect((rest.match(/<th scope="row">/g) ?? []).length).toBe(2);
+    expect(rest).toContain('<summary><span class="closed">Show all 12</span><span class="open">Show 10</span></summary>');
+    expect(rest).toContain('<thead class="sr-only">'); // the second table keeps its column names for screen readers
+  });
+});
+
+describe('a split table', () => {
+  const row = (name: string, answered: number, extra: Partial<SplitRow> = {}): SplitRow => ({ name, agreed: answered, answered, medianMs: 12_000, timed: answered, ...extra });
+  const split = (rows: SplitRow[]) => render(<Split id="x-h" title="By thing" rows={rows} minN={MIN_N} loaded />);
+
+  test('up to six rows: every row is named, a small one reads "too few"', () => {
+    const html = split([row('a', 20), row('b', 9), row('c', 6), row('d', 5), row('e', 2), row('f', 1)]);
+    expect((html.match(/<th scope="row">/g) ?? []).length).toBe(FOLD_ABOVE);
+    expect(html).not.toContain('more with too few');
+  });
+
+  test('more than six rows: the "too few" rows fold into one line that keeps their total', () => {
+    const html = split([row('a', 20), row('b', 9), row('c', 6), row('d', 5), row('e', 2), row('f', 1), row('g', 1)]);
+    expect((html.match(/<th scope="row">/g) ?? []).length).toBe(4);
+    expect(text(html)).toContain('3 more with too few answers (4 answers in total)');
+    const one = split([row('a', 20), row('b', 9), row('c', 6), row('d', 5), row('e', 7), row('f', 8), row('g', 1)]);
+    expect(text(one)).toContain('1 more with too few answers (1 answer in total)');
+  });
+
+  test('an answer time needs five timed prompts behind it', () => {
+    const html = split([row('a', 20, { timed: 5 }), row('b', 20, { timed: 4 })]);
+    expect(html).toContain('<th scope="row">a</th><td class="num">100%</td><td class="num">20</td><td class="num">12 s</td>');
+    expect(html).toContain('<th scope="row">b</th><td class="num">100%</td><td class="num">20</td><td class="num">–</td>');
+  });
+
+  test('no rows: the block is absent', () => {
+    expect(split([])).toBe('');
   });
 });
 
@@ -326,7 +418,7 @@ describe('the whole page', () => {
     expect((html.match(/<main/g) ?? []).length).toBe(1);
     expect(html).toContain('<aside class="needs" aria-labelledby="needs-h">');
     expect(html).toContain('<footer aria-label="Capture health">');
-    const order = ['Needs you', 'Recommendations taken', 'Trend, last 12 weeks', 'Where you overrode', 'By project', 'By label', 'live since'].map((s) => html.indexOf(s));
+    const order = ['Needs you', 'Recommendations taken', 'Trend, last 12 weeks', 'Recent sessions', 'Where you overrode', 'By project', 'live since'].map((s) => html.indexOf(s));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     // Every heading that labels a region exists.
@@ -338,8 +430,8 @@ describe('the whole page', () => {
       inbox: inbox({ waiting: [session({ project: XSS, message: XSS, session_id: `x"><img src=x onerror=alert(1)>` })], todos: [{ project: XSS, file: 'f', items: [XSS] }] }),
       judgment: judgment({
         overrides: [{ ts: NOW, project: XSS, title: XSS, typed: false }],
-        projects: [{ project: XSS, agreed: 5, answered: 5, medianMs: null }],
-        chips: [{ label: `<img src=x onerror=alert(1)>`, agreed: 5, answered: 5 }],
+        projects: [{ project: XSS, agreed: 5, answered: 5, medianMs: null, timed: 0 }],
+        sessions: [{ session: 's', project: `<img src=x onerror=alert(1)>`, lastTs: NOW, agreed: 5, answered: 5, medianMs: null, timed: 0 }],
         version: XSS,
       }),
     });

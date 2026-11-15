@@ -31,7 +31,7 @@ import {
   type InboxModel,
   type ShownSession,
 } from './inbox';
-import { MIN_N } from './judgment';
+import { FAST_ANSWER_MS, MIN_N } from './judgment';
 import { boardData } from './outcomes';
 
 export { DEFAULT_PORT };
@@ -85,6 +85,8 @@ export function judgmentJson(inbox: Inbox, version: string, now: number) {
     version,
     /** Below this many answered questions a share is not shown ("too few"). */
     min_n: MIN_N,
+    /** An answer faster than this counts as fast (timing.fast). */
+    fast_ms: FAST_ANSWER_MS,
     live_since: captureSince(inbox.cfg.dir),
     ...board.totals,
     inferred_dismissed: board.inferredDismissed,

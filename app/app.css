@@ -43,8 +43,13 @@ main h2:first-child,.acceptance h2{margin-top:0}
 .headline{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s1) var(--s4);margin:0;max-width:none}
 .headline .number{font-size:var(--number);font-weight:600;line-height:1.1}
 .headline .basis{font-size:var(--value)}
-.headline .timing{font-size:var(--value);margin-left:auto}
-.framing{margin-top:var(--s2)}
+/* Three figures under the anchor: value above its label, the count under the label */
+.figures{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s8);margin:var(--s3) 0 0}
+.figures div{display:flex;flex-direction:column-reverse}
+.figures dd{margin:0;font-size:var(--value)}
+.figures dt{font-size:var(--label);color:var(--muted)}
+.figures .count{display:block}
+.framing{margin-top:var(--s3)}
 .lead{font-size:var(--value)}
 .banner{border-top:1px solid var(--text);border-bottom:1px solid var(--text);padding:var(--s2) 0;margin-bottom:var(--s4)}
 
@@ -59,6 +64,12 @@ main h2:first-child,.acceptance h2{margin-top:0}
 .trend .bar.thin{fill:none;stroke:var(--muted);stroke-width:1}
 details{margin-top:var(--s2)}
 summary{cursor:pointer;font-size:var(--label);color:var(--muted);min-height:44px;display:flex;align-items:center}
+/* "Show all": underlined text in the text color, no marker */
+.more summary{color:var(--text);text-decoration:underline;text-underline-offset:var(--s1);list-style:none}
+.more summary::-webkit-details-marker{display:none}
+.more[open] .closed,.more:not([open]) .open{display:none}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
+.folded{margin-top:var(--s2)}
 
 /* Tables */
 table{border-collapse:collapse;width:100%}
@@ -81,6 +92,9 @@ footer dd{display:inline;margin:0;color:var(--text)}
   .board{grid-template-columns:280px minmax(0,1fr);padding:var(--s6) var(--s8)}
   .needs{grid-column:1}
   main{grid-column:2}
+}
+/* 1280px and up: two split tables to a row */
+@media (min-width:1280px){
   .splits{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s8)}
 }
 /* under 640px: each table row becomes a two-line block */
@@ -89,9 +103,14 @@ footer dd{display:inline;margin:0;color:var(--text)}
   .split tr,.list tr{display:block;padding:var(--s2) 0;border-bottom:1px solid var(--line)}
   .split th,.split td,.list th,.list td{display:inline;border:0;padding:0}
   .split tbody th,.list tbody th{display:block}
-  .split td{margin-right:var(--s4);text-align:left}
-  .split td:last-child::after{content:" answers";color:var(--muted)}
+  .split td{text-align:left}
+  .split td+td::before{content:" · ";color:var(--muted)}
+  .split td:nth-of-type(2)::after{content:" answers";color:var(--muted)}
   .list td{margin-right:var(--s3);color:var(--muted);font-size:var(--label)}
-  .headline .timing{margin-left:0}
+  /* one figure per line: value, then its label and count */
+  .figures{flex-direction:column;gap:var(--s2)}
+  .figures div{flex-direction:row-reverse;justify-content:flex-end;align-items:baseline;gap:var(--s3)}
+  .figures .count{display:inline}
+  .figures .count::before{content:", "}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

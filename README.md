@@ -6,8 +6,10 @@ you nod along with the agent's recommendation. Everything stays on your machine.
 - **Needs you:** sessions waiting for input, waiting on a permission, or finished and unread,
   each with the command that resumes it.
 - **Recommendations taken:** of the questions where the agent marked exactly one option
-  "(Recommended)" and you answered, the share where you picked that option, with the time you
-  took to answer beside it, a 12-week trend, and the questions where you chose otherwise.
+  "(Recommended)" and you answered, the share where you picked that option. Under it: the median
+  time you took to answer, the share you answered in under 15 seconds, and the share for the last
+  7 days. Then a 12-week trend, your recent sessions, the questions where you chose otherwise,
+  and the share per project.
 
 A high share does not by itself mean the agent is right: it is the same number a reviewer who
 stopped reading would produce. Read it next to the answer times.
@@ -111,8 +113,11 @@ Per question of an AskUserQuestion call, the first rule that matches:
   transcript recorded.
 - Several observations of one question (the hook and an import, or a resumed session's copies)
   are reconciled by strength of evidence; the order they arrive in never matters.
-- Time to answer is measured between the hook's two events, once per question prompt. It is
-  elapsed time, not attention.
+- Time to answer is measured between the hook's two events, once per question prompt, however
+  many questions the prompt holds. It is elapsed time, not attention. The "under 15 s" share and
+  every median are over timed prompts; a median is shown with at least 5 of them.
+- "Last 7 days" is the 168 hours before now, by the time of the answer.
+- A session is dated by its latest answer.
 - Projects are named after the last segment of the session's working directory.
 
 The answer is read only from the structured payload, never by matching text. When Claude Code
@@ -133,7 +138,7 @@ refuses to write inside the repository. Delete that directory when you are done.
 |---|---|
 | `/` | the dashboard app (`dist/`, built by `scripts/build.ts`) |
 | `/api/inbox` | sessions that need you, as JSON |
-| `/api/judgment` | totals, splits and the weekly trend from `outcomes.jsonl`, as JSON |
+| `/api/judgment` | totals, the last 7 days, sessions, the split per project and the weekly trend from `outcomes.jsonl`, as JSON |
 | `/health` | app name, version, whether a newer version wants to take over, source states |
 
 The session-start hook starts the server when none is running. After a plugin update, the next

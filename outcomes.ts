@@ -276,10 +276,25 @@ export function productOf(row: Pick<QuestionRow, 'product'>): string {
   return row.product ?? DEFAULT_PRODUCT;
 }
 
+/**
+ * When each call was answered: the earliest answer time any source saw for it. A prompt's
+ * questions are answered together, so the time belongs to the call. Calls nobody saw answered
+ * are absent.
+ */
+export function callAnswerTimes(observations: readonly Observation[]): Map<string, number> {
+  const times = new Map<string, number>();
+  for (const o of observations) {
+    if (rankOf(o.kind) !== RANK.decided || o.answerTs === null) continue;
+    const known = times.get(o.call);
+    if (known === undefined || o.answerTs < known) times.set(o.call, o.answerTs);
+  }
+  return times;
+}
+
 export function reconcile(observations: readonly Observation[], opts: ReconcileOptions): QuestionRow[] {
   const byQuestion = new Map<string, Observation[]>();
   const callAsk = new Map<string, number | null>();
-  const callAnswer = new Map<string, number | null>();
+  const callAnswer = callAnswerTimes(observations);
   const sessionLastAsk = new Map<string, number>();
   for (const o of observations) {
     const key = `${o.call}\u0000${o.pos}`;
@@ -287,7 +302,6 @@ export function reconcile(observations: readonly Observation[], opts: ReconcileO
     if (list) list.push(o);
     else byQuestion.set(key, [o]);
     callAsk.set(o.call, earliest(callAsk.get(o.call) ?? null, o.askTs));
-    if (rankOf(o.kind) === RANK.decided) callAnswer.set(o.call, earliest(callAnswer.get(o.call) ?? null, o.answerTs));
     if (o.askTs !== null && o.askTs > (sessionLastAsk.get(o.session) ?? -Infinity)) sessionLastAsk.set(o.session, o.askTs);
   }
 
@@ -361,8 +375,9 @@ export interface BoardData {
 export function boardData(dir: string, opts: ReconcileOptions): BoardData {
   const stored = readObservations(dir);
   const rows = reconcile(stored.observations, opts);
+  const answered = callAnswerTimes(stored.observations);
   return {
-    totals: aggregate(rows),
+    totals: aggregate(rows, { now: opts.now, answeredAt: (call) => answered.get(call) ?? null }),
     weekly: weeklySeries(rows, opts.now),
     unreadable: stored.unreadable,
     sources: {

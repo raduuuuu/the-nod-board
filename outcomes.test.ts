@@ -474,9 +474,9 @@ describe('history stored by 0.1.1 reads the same', () => {
     expect([t.calls, t.questions]).toEqual([40, 41]);
     expect(t.timing).toEqual({ n: 34, medianMs: 30000, fast: 14 });
     expect(t.projects).toEqual([
-      { project: 'beta', agreed: 9, answered: 12, medianMs: 30000 },
-      { project: 'alpha', agreed: 7, answered: 10, medianMs: 30000 },
-      { project: 'gamma', agreed: 9, answered: 9, medianMs: 30000 },
+      { project: 'beta', agreed: 9, answered: 12, medianMs: 30000, timed: 12 },
+      { project: 'alpha', agreed: 7, answered: 10, medianMs: 30000, timed: 10 },
+      { project: 'gamma', agreed: 9, answered: 9, medianMs: 30000, timed: 9 },
     ]);
     expect([t.sessions.length, t.overrides.length]).toEqual([15, 6]);
     expect(board.weekly.map((w) => [w.agreed, w.answered]).slice(-4)).toEqual([[10, 12], [10, 12], [5, 7], [0, 0]]);
@@ -569,5 +569,63 @@ describe('attributes: who asked', () => {
     expect(appendNew(dir, [withModel])).toBe(0);
     const { rows } = readQuestions(dir, { now: NOW });
     expect(rows.map((r) => [r.outcome, r.model])).toEqual([['AGREED', 'claude-test-1']]);
+  });
+});
+
+describe('the last 7 days, answer times and timed prompts, through the store', () => {
+  const DAY = 24 * 3_600_000;
+  const AT = Date.parse('2026-11-20T12:00:00.000Z');
+  const pair = (call: string, askTs: number, answerTs: number, kind: ObservedKind = 'AGREED', extra: Partial<Observation> = {}): Observation[] => [
+    obs(ASKED, { call, askTs, ...extra }),
+    obs(kind, { call, answerTs, ...extra }),
+  ];
+  const board = (observations: Observation[]) => {
+    const dir = freshDir();
+    for (const o of observations) appendObservation(dir, o);
+    return boardData(dir, { now: AT }).totals;
+  };
+
+  test('recent means answered within the last 168 hours: asked earlier still counts, answered exactly 168 hours ago does not', () => {
+    const t = board([
+      ...pair('in', AT - 8 * DAY, AT - 6 * DAY),
+      ...pair('edge', AT - 9 * DAY, AT - 7 * DAY),
+      ...pair('old', AT - 30 * DAY, AT - 30 * DAY + 1000, 'OVERRODE_OPTION'),
+      ...pair('now', AT - 1000, AT, 'OVERRODE_TYPED'),
+    ]);
+    expect(t.recent).toEqual({ agreed: 1, answered: 2 });
+    expect(t.overall).toEqual({ agreed: 2, answered: 4 });
+  });
+
+  test('an answer whose time is unknown falls back to when it was asked', () => {
+    const t = board([obs('AGREED', { source: 'import', call: 'c', askTs: AT - DAY, answerTs: null })]);
+    expect(t.recent).toEqual({ agreed: 1, answered: 1 });
+  });
+
+  test('a session is dated by its latest answer, not by when that question was asked', () => {
+    const t = board(pair('c', AT - 3 * DAY, AT - 2 * DAY));
+    expect(t.sessions.map((s) => s.lastTs)).toEqual([AT - 2 * DAY]);
+  });
+
+  test('timed counts prompts, not questions: two questions answered in one prompt are one timing', () => {
+    const t = board([
+      obs(ASKED, { call: 'c', pos: 0, askTs: AT - 5000 }),
+      obs(ASKED, { call: 'c', pos: 1, askTs: AT - 5000 }),
+      obs('AGREED', { call: 'c', pos: 0, answerTs: AT }),
+      obs('OVERRODE_OPTION', { call: 'c', pos: 1, answerTs: AT }),
+    ]);
+    expect(t.projects).toEqual([{ project: 'app', agreed: 1, answered: 2, medianMs: 5000, timed: 1 }]);
+    expect(t.sessions.map((s) => [s.answered, s.timed])).toEqual([[2, 1]]);
+  });
+
+  test('without the current time nothing counts as recent', () => {
+    const { rows } = readQuestions(
+      (() => {
+        const dir = freshDir();
+        for (const o of pair('c', AT - 1000, AT)) appendObservation(dir, o);
+        return dir;
+      })(),
+      { now: AT },
+    );
+    expect(aggregate(rows).recent).toEqual({ agreed: 0, answered: 0 });
   });
 });

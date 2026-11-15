@@ -6,10 +6,8 @@ import {
   ANSWERED,
   HOME_PROJECT,
   MAX_OVERRIDES,
-  OTHER_CHIP,
   OUTCOMES,
   TITLE_MAX,
-  TOP_CHIPS,
   aggregate,
   classify,
   listTranscripts,
@@ -357,7 +355,7 @@ describe('aggregate', () => {
     const t = await totalsOf({ s: [{ type: 'user', message: { role: 'user', content: 'hi' } }] });
     expect(t.overall).toEqual({ agreed: 0, answered: 0 });
     expect(t.timing).toEqual({ n: 0, medianMs: null, fast: 0 });
-    expect([t.projects, t.chips, t.sessions, t.overrides]).toEqual([[], [], [], []]);
+    expect([t.projects, t.sessions, t.overrides]).toEqual([[], [], []]);
   });
 
   test('time to answer is one observation per call, and calls without both timestamps are left out', async () => {
@@ -377,25 +375,6 @@ describe('aggregate', () => {
     expect(t.timing).toEqual({ n: 2, medianMs: 25_000, fast: 1 });
     expect(median([5])).toBe(5);
     expect(median([])).toBeNull();
-  });
-
-  test('labels: the 15 most common, the rest summed under "other", grouped without case or padding', async () => {
-    const lines: unknown[] = [];
-    let n = 0;
-    const ask = (header: string, answer: string) => {
-      const q = yesNo(`Q${n}?`, { header });
-      const id = `toolu_${n++}`;
-      lines.push(use(id, [q], n * 1000), answered(id, [q], { [q.question]: answer }, n * 1000 + 500));
-    };
-    for (let i = 0; i < TOP_CHIPS; i++) for (let k = 0; k < 2; k++) ask(`Chip ${String(i).padStart(2, '0')}`, REC);
-    ask('  chip 00 ', 'Skip it'); // same label as "Chip 00"
-    ask('Rare one', REC);
-    ask('Rare two', 'Skip it');
-    const t = await totalsOf({ s: lines });
-    expect(t.chips).toHaveLength(TOP_CHIPS + 1);
-    expect(t.chips[0]).toEqual({ label: 'chip 00', agreed: 2, answered: 3 });
-    expect(t.chips[TOP_CHIPS]).toEqual({ label: OTHER_CHIP, agreed: 1, answered: 2 });
-    expect(t.chips.reduce((s, c) => s + c.answered, 0)).toBe(t.overall.answered);
   });
 
   test('overrides: newest first, capped, first line only and cut to length', async () => {
