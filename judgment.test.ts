@@ -7,6 +7,10 @@ import {
   HOME_PROJECT,
   MAX_OVERRIDES,
   OUTCOMES,
+  PROFILE_MAX,
+  SESSION_MARKS,
+  TIME_BUCKETS,
+  TIME_BUCKET_MS,
   TITLE_MAX,
   aggregate,
   classify,
@@ -21,6 +25,7 @@ import {
   titleOf,
   weekStart,
   weeklySeries,
+  weeklyTimes,
   type CallResult,
   type FileRef,
   type FileRows,
@@ -513,5 +518,97 @@ describe('weekly trend', () => {
       { start: MON - WEEK, agreed: 0, answered: 0 },
       { start: MON, agreed: 2, answered: 2 },
     ]);
+  });
+});
+
+describe('the data behind the charts', () => {
+  const MON = Date.UTC(2026, 10, 9);
+  const WEEK = 7 * 24 * 3_600_000;
+  let n = 0;
+  const row = (outcome: QuestionRow['outcome'], extra: Partial<QuestionRow> = {}): QuestionRow => ({
+    call: `c${n++}`,
+    pos: 0,
+    outcome,
+    inferred: false,
+    chip: 'x',
+    title: 't',
+    session: 's',
+    project: 'p',
+    askTs: MON + n * 1000,
+    elapsedMs: null,
+    ...extra,
+  });
+
+  test('answer times fall into 5 second buckets, and everything slower than the last one into a final bucket', () => {
+    const t = aggregate([
+      row('AGREED', { elapsedMs: 0 }),
+      row('AGREED', { elapsedMs: TIME_BUCKET_MS - 1 }),
+      row('AGREED', { elapsedMs: TIME_BUCKET_MS }),
+      row('OVERRODE_OPTION', { elapsedMs: TIME_BUCKETS * TIME_BUCKET_MS - 1 }),
+      row('AGREED', { elapsedMs: TIME_BUCKETS * TIME_BUCKET_MS }),
+      row('AGREED', { elapsedMs: 3_600_000 }),
+      row('AGREED'), // not timed: in no bucket
+    ]);
+    expect(t.timeBuckets).toHaveLength(TIME_BUCKETS + 1);
+    expect([t.timeBuckets[0], t.timeBuckets[1], t.timeBuckets[TIME_BUCKETS - 1], t.timeBuckets[TIME_BUCKETS]]).toEqual([2, 1, 1, 2]);
+    expect(t.timeBuckets.reduce((a, b) => a + b, 0)).toBe(t.timing.n); // the histogram and the median rest on the same prompts
+    expect(aggregate([]).timeBuckets).toEqual(new Array(TIME_BUCKETS + 1).fill(0));
+  });
+
+  test('a prompt with several questions is one answer time, as in the median', () => {
+    const t = aggregate([row('AGREED', { call: 'same', elapsedMs: 7_000 }), row('AGREED', { call: 'same', pos: 1, elapsedMs: 7_000 })]);
+    expect(t.timeBuckets[1]).toBe(1);
+  });
+
+  test('a profile per model: how each question went, dismissals beside the answers, timing once per prompt', () => {
+    const t = aggregate([
+      row('AGREED', { model: 'm-a', elapsedMs: 4_000 }),
+      row('AGREED', { model: 'm-a', elapsedMs: 40_000 }),
+      row('OVERRODE_OPTION', { model: 'm-a' }),
+      row('OVERRODE_TYPED', { model: 'm-a' }),
+      row('DISMISSED', { model: 'm-a' }),
+      row('EXCLUDED_NO_REC', { model: 'm-a' }), // neither answered nor dismissed
+      row('AGREED', { model: 'm-b', elapsedMs: 1_000 }),
+      row('AGREED'), // no model recorded: in no profile
+    ]);
+    expect(t.modelProfiles).toEqual([
+      { name: 'm-a', answered: 4, agreed: 2, option: 1, typed: 1, dismissed: 1, timed: 2, fast: 1 },
+      { name: 'm-b', answered: 1, agreed: 1, option: 0, typed: 0, dismissed: 0, timed: 1, fast: 1 },
+    ]);
+  });
+
+  test('the profiles are the models with the most answers, at most four', () => {
+    const rows = Array.from({ length: PROFILE_MAX + 2 }, (_, i) => Array.from({ length: i + 1 }, () => row('AGREED', { model: `m-${i}` }))).flat();
+    const names = aggregate(rows).modelProfiles.map((p) => p.name);
+    expect(names).toEqual(['m-5', 'm-4', 'm-3', 'm-2']);
+  });
+
+  test('a session keeps its answers in order, the latest sixty: 1 took the recommendation, 0 chose otherwise', () => {
+    const t = aggregate([row('AGREED'), row('OVERRODE_OPTION'), row('DISMISSED'), row('OVERRODE_TYPED'), row('AGREED')]);
+    expect(t.sessions[0].marks).toBe('1001');
+    const long = aggregate([row('OVERRODE_OPTION'), ...Array.from({ length: SESSION_MARKS }, () => row('AGREED'))]);
+    expect(long.sessions[0].marks).toBe('1'.repeat(SESSION_MARKS)); // the oldest answer dropped out
+    expect(long.sessions[0].answered).toBe(SESSION_MARKS + 1); // the count still has it
+  });
+
+  test('weekly answer times: the same weeks as the trend, one time per prompt, null for a week without one', () => {
+    const now = MON + 3 * 24 * 3_600_000;
+    const times = weeklyTimes(
+      [
+        row('AGREED', { askTs: MON + 1, elapsedMs: 10_000 }),
+        row('OVERRODE_OPTION', { askTs: MON + 2, elapsedMs: 30_000 }),
+        row('AGREED', { askTs: MON + 3, call: 'two', elapsedMs: 50_000 }),
+        row('AGREED', { askTs: MON + 3, call: 'two', pos: 1, elapsedMs: 50_000 }),
+        row('AGREED', { askTs: MON - 1, elapsedMs: 8_000 }),
+        row('AGREED', { askTs: MON + 4 }), // not timed
+        row('AGREED', { askTs: null, elapsedMs: 5_000 }), // cannot be placed
+        row('AGREED', { askTs: MON - 12 * WEEK, elapsedMs: 5_000 }), // too old
+      ],
+      now,
+    );
+    expect(times.map((w) => w.start)).toEqual(weeklySeries([], now).map((w) => w.start));
+    expect(times[11]).toEqual({ start: MON, medianMs: 30_000, timed: 3 });
+    expect(times[10]).toEqual({ start: MON - WEEK, medianMs: 8_000, timed: 1 });
+    expect(times[0]).toEqual({ start: MON - 11 * WEEK, medianMs: null, timed: 0 });
   });
 });

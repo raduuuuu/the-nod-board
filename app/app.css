@@ -6,11 +6,12 @@
 :root{
   color-scheme:light dark;
   --page:#fff;--text:#1a1a1a;--muted:#666;--line:#e3e3e3;--accent:#b4005a;
+  --series1:#0b5fa5;--series2:#b85c00;--series3:#2f7d4f;--series4:#0f766e;
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;
   --label:13px;--body:16px;--value:20px;--number:40px;
   --sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;
 }
-@media (prefers-color-scheme:dark){:root{--page:#121212;--text:#ececec;--muted:#9a9a9a;--line:#2c2c2c;--accent:#ff6fae}}
+@media (prefers-color-scheme:dark){:root{--page:#121212;--text:#ececec;--muted:#9a9a9a;--line:#2c2c2c;--accent:#ff6fae;--series1:#6cb2ee;--series2:#f0a04b;--series3:#6fcf97;--series4:#4fd1c5}}
 
 *{box-sizing:border-box}
 html{scrollbar-color:var(--line) var(--page)}
@@ -19,7 +20,7 @@ body{margin:0;background:var(--page);color:var(--text);font:400 var(--body)/1.5 
 :focus-visible{outline:2px solid var(--text);outline-offset:2px}
 .noscript{max-width:60ch;margin:var(--s12) auto;padding:0 var(--s4)}
 
-.board{max-width:1200px;margin:0 auto;padding:var(--s4);display:grid;grid-template-columns:minmax(0,1fr);gap:0 var(--s8)}
+.board{max-width:1440px;margin:0 auto;padding:var(--s4);display:grid;grid-template-columns:minmax(0,1fr);gap:0 var(--s8)}
 h1{font-size:var(--label);font-weight:600;margin:0 0 var(--s4);grid-column:1/-1}
 h2{font-size:var(--label);font-weight:600;margin:var(--s8) 0 var(--s2);padding-top:var(--s3);border-top:1px solid var(--line)}
 h3{font-size:var(--label);font-weight:400;color:var(--muted);margin:var(--s4) 0 var(--s1)}
@@ -43,13 +44,70 @@ main h2:first-child,.acceptance h2{margin-top:0}
 .headline{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--s1) var(--s4);margin:0;max-width:none}
 .headline .number{font-size:var(--number);font-weight:600;line-height:1.1}
 .headline .basis{font-size:var(--value)}
-/* Three figures under the anchor: value above its label, the count under the label */
-.figures{display:flex;flex-wrap:wrap;gap:var(--s2) var(--s8);margin:var(--s3) 0 0}
-.figures div{display:flex;flex-direction:column-reverse}
-.figures dd{margin:0;font-size:var(--value)}
-.figures dt{font-size:var(--label);color:var(--muted)}
-.figures .count{display:block}
-.framing{margin-top:var(--s3)}
+/* The headline band: the number and what it rests on, and beside it how fast you answer */
+.band{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s6) var(--s12);align-items:start}
+.recent{margin:var(--s3) 0 0;font-size:var(--value)}
+.framing{margin-top:var(--s2)}
+.histogram h3{margin-top:0}
+.histogram svg{display:block;width:100%;height:auto;max-width:420px}
+.histogram p{margin-top:var(--s1)}
+
+/* Charts: ink and grey; geometry lives in the SVG, every color here */
+svg .axis{font:400 11px var(--sans);fill:var(--muted)}
+svg .axis.strong{fill:var(--text)}
+svg .rule{stroke:var(--line);stroke-width:1;fill:none}
+svg .rule.strong{stroke:var(--muted)}
+svg .bar{fill:var(--muted)}
+svg .bar.over{fill:none;stroke:var(--muted);stroke-width:1}
+svg .dot{fill:var(--text)}
+.histogram .bar{fill:var(--text)}
+.histogram .bar.over{fill:none;stroke:var(--text)}
+.histogram .marker{stroke:var(--text);stroke-width:1;stroke-dasharray:3 3}
+.histogram .median{fill:var(--text)}
+
+/* Where every question went */
+.outcomes{margin-top:var(--s3)}
+.outcomes > svg{display:block;width:100%;height:10px;max-width:760px}
+.seg{stroke:var(--text);stroke-width:1}
+.seg.took{fill:var(--text)}
+.seg.other{fill:var(--page)}
+.seg.dismissed{fill:var(--muted);stroke:var(--muted)}
+.seg.unanswered{fill:var(--line);stroke:var(--muted)}
+.seg.unreadable{fill:var(--line);stroke:var(--muted);stroke-dasharray:2 2}
+.seg.excluded{fill:var(--line);stroke:var(--line)}
+.keys{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s4);margin-top:var(--s2);font-size:var(--label)}
+.keys li{display:flex;align-items:center;gap:var(--s1)}
+.key{width:10px;height:10px;flex:none}
+
+/* Inside table rows */
+.track{width:80px;height:12px;vertical-align:middle;margin-right:var(--s2)}
+.tbar{width:56px;height:12px;vertical-align:middle;margin-right:var(--s2)}
+.taken div{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s3)}
+.marks{height:auto;flex:none}
+.marks[data-cols]{width:298px;max-width:100%}
+.split tbody th{white-space:nowrap}
+.list th:has(+ .taken){white-space:nowrap}
+/* a fixed width for the number, so the tracks and bars of a table start on one line */
+.split .val{display:inline-block;min-width:5ch;text-align:right;white-space:nowrap}
+@media (min-width:640px){.split .num{padding-left:var(--s4)}}
+.split th small{font-size:inherit;color:var(--muted)}
+.mark{stroke:var(--text);stroke-width:1}
+.mark.took{fill:var(--text)}
+.mark.other{fill:var(--page)}
+
+/* How you respond, per model: the one chart with several series */
+.spider > svg{display:block;width:100%;height:auto;max-width:440px}
+.spider .ring{fill:none;stroke:var(--line);stroke-width:1}
+.series .outline{fill:none;stroke-width:1.75;stroke-linejoin:round}
+.series.s1 .outline{stroke:var(--series1)}
+.series.s2 .outline{stroke:var(--series2);stroke-dasharray:7 3}
+.series.s3 .outline{stroke:var(--series3);stroke-dasharray:2 3}
+.series.s4 .outline{stroke:var(--series4);stroke-dasharray:8 3 2 3}
+.series.s1 .vertex{fill:var(--series1)}
+.series.s2 .vertex{fill:var(--series2)}
+.series.s3 .vertex{fill:var(--series3)}
+.series.s4 .vertex{fill:var(--series4)}
+.serieskey{width:22px;height:10px;flex:none;vertical-align:middle;margin-right:var(--s2)}
 .lead{font-size:var(--value)}
 .banner{border-top:1px solid var(--text);border-bottom:1px solid var(--text);padding:var(--s2) 0;margin-bottom:var(--s4)}
 
@@ -59,6 +117,8 @@ main h2:first-child,.acceptance h2{margin-top:0}
 .trend .rule{stroke:var(--line);stroke-width:1}
 .trend .rule.strong{stroke:var(--muted)}
 .trend .link{stroke:var(--text);stroke-width:1.5}
+.trend .link.thin{stroke:var(--muted);stroke-width:1.25}
+.trend .tick{fill:var(--muted)}
 .trend .dot{fill:var(--text)}
 .trend .bar{fill:var(--muted)}
 .trend .bar.thin{fill:none;stroke:var(--muted);stroke-width:1}
@@ -70,6 +130,8 @@ summary{cursor:pointer;font-size:var(--label);color:var(--muted);min-height:44px
 .more[open] .closed,.more:not([open]) .open{display:none}
 .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .folded{margin-top:var(--s2)}
+.todos summary{margin-top:var(--s4)}
+.todos li{padding:var(--s2) 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
 .hint{margin-top:var(--s8);padding-top:var(--s3);border-top:1px solid var(--line)}
 .hint p{margin:0}
 
@@ -95,9 +157,10 @@ footer dd{display:inline;margin:0;color:var(--text)}
   .needs{grid-column:1}
   main{grid-column:2}
 }
-/* 1280px and up: two split tables to a row */
+/* 1280px and up: the histogram beside the number; two split blocks to a row */
 @media (min-width:1280px){
-  .splits{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s8)}
+  .band{grid-template-columns:minmax(0,1fr) minmax(280px,380px)}
+  .splits{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s8);align-items:start}
 }
 /* under 640px: each table row becomes a two-line block */
 @media (max-width:639px){
@@ -109,10 +172,9 @@ footer dd{display:inline;margin:0;color:var(--text)}
   .split td+td::before{content:" · ";color:var(--muted)}
   .split td:nth-of-type(2)::after{content:" answers";color:var(--muted)}
   .list td{margin-right:var(--s3);color:var(--muted);font-size:var(--label)}
-  /* one figure per line: value, then its label and count */
-  .figures{flex-direction:column;gap:var(--s2)}
-  .figures div{flex-direction:row-reverse;justify-content:flex-end;align-items:baseline;gap:var(--s3)}
-  .figures .count{display:inline}
-  .figures .count::before{content:", "}
+  .track,.tbar{display:none}
+  .split .val{display:inline;min-width:0}
+  .marks[data-cols]{width:100%}
+  .recent{font-size:var(--body)}
 }
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}

@@ -58,6 +58,7 @@ import {
   scanChunks,
   titleOf,
   weeklySeries,
+  weeklyTimes,
   type FileRef,
   type FileRows,
   type MergedCall,
@@ -65,6 +66,7 @@ import {
   type QuestionRow,
   type Totals,
   type WeekPoint,
+  type WeekTime,
 } from './judgment';
 
 export const OUTCOMES_FILE = 'outcomes.jsonl';
@@ -367,6 +369,8 @@ export interface BoardData {
   totals: Totals;
   /** The last 12 calendar weeks, oldest first. */
   weekly: WeekPoint[];
+  /** The median answer time for the same weeks. */
+  weeklyTime: WeekTime[];
   /** Lines in the store that could not be read. */
   unreadable: number;
   /** Which sources have written at least one observation. */
@@ -398,6 +402,7 @@ export function boardData(dir: string, opts: ReconcileOptions): BoardData {
   return {
     totals: aggregate(rows, { now: opts.now, answeredAt: (call) => answered.get(call) ?? null }),
     weekly: weeklySeries(rows, opts.now),
+    weeklyTime: weeklyTimes(rows, opts.now),
     unreadable: stored.unreadable,
     sources: {
       hook: stored.observations.some((o) => o.source === 'hook'),

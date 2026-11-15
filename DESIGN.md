@@ -13,9 +13,16 @@ Light or dark follows the system setting, because the page sits next to an edito
 | muted | `#666` | `#9a9a9a` | labels, secondary text, chart bars |
 | line | `#e3e3e3` | `#2c2c2c` | one-pixel rules |
 | accent | `#b4005a` | `#ff6fae` | only the "Needs you" heading when something needs you |
+| series1 | `#0b5fa5` | `#6cb2ee` | first series of a chart with several series; solid line |
+| series2 | `#b85c00` | `#f0a04b` | second series; long dashes |
+| series3 | `#2f7d4f` | `#6fcf97` | third series; dots |
+| series4 | `#0f766e` | `#4fd1c5` | fourth series; dash and dot |
 
 - No color ever encodes a high or low acceptance share.
-- Nothing is conveyed by color alone. Body text has a contrast of at least 4.5:1 in both modes.
+- The series colors only tell series apart, in a chart that holds several. Every other chart is
+  text color and grey.
+- Nothing is conveyed by color alone: each series also has its own line style. Body text has a
+  contrast of at least 4.5:1 in both modes, and every series color at least 4.5:1 on the page.
 
 ## Type
 IBM Plex Sans 400 and 600, IBM Plex Mono 400, shipped with the plugin (SIL Open Font License) and
@@ -41,28 +48,42 @@ None. Updates change text in place. The reduced-motion setting is respected.
 ## Layout
 | Width | Layout |
 |---|---|
-| 1280px and up | as below, and the split tables sit two to a row |
-| 1024px and up | two zones: Needs you 280px on the left, main area fluid, content at most 1200px; one split table per row |
+| 1280px and up | as below; the answer-time histogram sits beside the acceptance number, and the split blocks sit two to a row |
+| 1024px and up | two zones: Needs you 280px on the left, main area fluid, page at most 1440px; one split block per row |
 | 640 to 1023px | one column: Needs you, then the main area, then capture health; tables keep their columns |
-| under 640px | one column; each table row becomes a two-line block that keeps every value ("94% · 312 answers · 38 s"); the three figures stack one per line; the trend shows 8 weeks; commands wrap; tap targets at least 44px |
+| under 640px | one column; each table row becomes a two-line block that keeps every value ("94% · 312 answers · 38 s") and drops its track and bar; a session's squares take the full width; the trend shows 8 weeks; commands wrap; tap targets at least 44px |
 
-The main area reads top to bottom: the acceptance number with its figures, the trend, recent
-sessions, where you overrode, then the splits. What happened lately comes before the breakdowns.
+The main area reads top to bottom: the acceptance number with what it rests on, the trend, recent
+sessions, where you overrode, then the splits with the profile per model after By project. What happened lately comes before the breakdowns.
 
 No sideways page scrolling at any width.
 
 ## Headline
-The acceptance number is the only 40px value. Under it, one row of three figures: median answer,
-the share answered in under 15 seconds, and the share for the last 7 days. Each is a 20px value
-above a 13px label; a share has its count under the label. A figure with nothing behind it shows
-an en dash; under 5 it reads "too few".
+The acceptance number is the only 40px value. Under it, in this order: the outcome bar, one bar
+for every question to scale (took, chose otherwise, dismissed, unanswered, unreadable, excluded)
+with a key that gives each count and lists only what exists; the last 7 days as one 20px line,
+"Last 7 days: 91% (169 of 186)", or "too few" with the count under 5; then the framing sentence.
+
+Beside the number from 1280px, under it below: "How fast you answer", a histogram of answer
+times in 5 second bars up to 3 minutes, with one outlined bar for everything slower, a dashed
+marker at 15 seconds and a triangle at the median. One line under it says the same: the share
+under 15 seconds with its count, and the median. Under 5 timed answers it draws nothing and
+says how many there are.
 
 ## Lists and splits
 Recent sessions and Where you overrode show 10 rows. The overrides list offers the rest through
 the browser's own disclosure, styled as 13px underlined text in the text color with no marker:
 "Show all 50", then "Show 10". Its open state survives the refresh.
 
-A split table has four columns: name, share, answers, answer time. An answer time needs 5 timed
+Recent sessions shows a square per answer, in order, 30 to a line: filled took the
+recommendation, hollow chose otherwise. The latest 60 are drawn; a longer session says so beside
+its count.
+
+A split table has four columns: name, share, answers, answer time. A share has a dot on an 80px
+track in front of it; the track ends at 100% and starts where the trend's share axis starts, or
+at a lower round ten when a row would fall off it, and the column header says where ("Share,
+from 80%"). An answer time has a thin bar in front of it on one scale for the whole page, 0 to
+90 seconds; a longer time fills the width as an outline. An answer time needs 5 timed
 prompts behind it, else an en dash. In a table of more than 6 rows, the rows under 5 answers fold
 into one closing line that keeps their total; a shorter table names every row. The splits come
 in this order: skill, model, project, agent, product. A split is shown even with one row. The
@@ -83,6 +104,27 @@ not listed.
 A dot per week for the share, a bar beneath for the number of answers. Weeks under 5 answers
 show the bar only, drawn as an outline. Dots are joined only between adjacent weeks that both qualify. The same
 numbers are available as a table.
+
+The share axis starts at the round ten at or below the lowest week drawn, never above 90%, so
+a share that stays near the top is not a flat line. The axis labels and the line under the
+chart both say where it starts. Between the share and the bars, a second panel shows the weekly
+median answer time as grey squares on the same weeks, from 0 to the longest week, for weeks with
+5 timed prompts.
+
+## Charts
+Hand-written SVG, no library. Geometry is in the markup and every color in the stylesheet. A
+chart never carries a number alone: each has a line of text, a table or a spoken label that
+says the same. Small graphics inside table rows are hidden from screen readers, since the cell
+text beside them says the same.
+
+"How you respond, per model" is a spider diagram with five spokes: took it, under 15 s, chose
+another, typed own answer, dismissed. It draws one outline per model, for at most the four
+models with the most answers and only those with 5 or more; each outline has a series color and
+a line style, and the same sample marks the model's row in By model. The five measures differ
+in size by an order of magnitude, so each spoke has its own scale, from 0 at the centre to a
+round value named at its edge ("edge = 25%"); the outlines compare models spoke by spoke, and
+their area means nothing. A measure with too little behind it has no point. With no model that
+qualifies, the block is absent.
 
 ## Accessibility
 Landmarks: main, complementary (Needs you), contentinfo (capture health, which begins with the

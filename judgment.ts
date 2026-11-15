@@ -54,6 +54,13 @@ export const FAST_ANSWER_MS = 15_000;
 /** "The last 7 days": the rolling 168 hours before now, by the time of the answer. */
 export const RECENT_WINDOW_MS = 7 * 24 * 3_600_000;
 export const RECENT_SESSIONS = 20;
+/** The answer-time histogram: buckets of this width, and one more for everything slower. */
+export const TIME_BUCKET_MS = 5_000;
+export const TIME_BUCKETS = 36;
+/** A session's answers are sent in order, the latest this many of them. */
+export const SESSION_MARKS = 60;
+/** How many models the profile compares. */
+export const PROFILE_MAX = 4;
 export const MAX_OVERRIDES = 50;
 export const TITLE_MAX = 120;
 export const HOME_PROJECT = '(home directory)';
@@ -404,6 +411,24 @@ export interface SplitRow extends Rate {
   medianMs: number | null;
   timed: number;
 }
+/**
+ * How one model's questions went, for the profile chart. Shares are left to the page:
+ * took = agreed / answered, fast = fast / timed, option and typed = of answered,
+ * dismissed = dismissed / (answered + dismissed).
+ */
+export interface ProfileRow {
+  name: string;
+  answered: number;
+  agreed: number;
+  /** Answered with another option. */
+  option: number;
+  /** Answered with typed text. */
+  typed: number;
+  dismissed: number;
+  /** Question prompts with a measured answer time, and how many of those were under FAST_ANSWER_MS. */
+  timed: number;
+  fast: number;
+}
 export interface SessionRow extends Rate {
   session: string;
   project: string;
@@ -411,6 +436,8 @@ export interface SessionRow extends Rate {
   lastTs: number | null;
   medianMs: number | null;
   timed: number;
+  /** The session's answers in order, the latest SESSION_MARKS: "1" took the recommendation, "0" chose otherwise. */
+  marks: string;
 }
 export interface OverrideRow {
   ts: number | null;
@@ -428,6 +455,10 @@ export interface Totals {
   timing: Timing;
   /** Answered in the last 7 days (RECENT_WINDOW_MS); zeros when aggregate() was not told the time. */
   recent: Rate;
+  /** Timed prompts per TIME_BUCKET_MS of answer time; the last entry holds everything slower. */
+  timeBuckets: number[];
+  /** The models with the most answers (never UNKNOWN), at most PROFILE_MAX, for the profile chart. */
+  modelProfiles: ProfileRow[];
   /** The share per skill, model, agent and product. Largest first; the UNKNOWN row last. */
   splits: Record<SplitKey, SplitRow[]>;
   projects: ProjectRow[];
@@ -529,6 +560,14 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
   const splits = Object.fromEntries(SPLIT_KEYS.map((k) => [k, new Map<string, Bucket>()])) as Record<SplitKey, Map<string, Bucket>>;
   // A question from before products were recorded came from Claude Code; any other missing value is unknown.
   const valueOf = (row: QuestionRow, key: SplitKey) => row[key] ?? (key === 'product' ? CLAUDE_CODE : UNKNOWN);
+  const profiles = new Map<string, ProfileRow>();
+  const profileOf = (row: QuestionRow): ProfileRow | null => {
+    if (row.model === undefined) return null;
+    let p = profiles.get(row.model);
+    if (!p) profiles.set(row.model, (p = { name: row.model, answered: 0, agreed: 0, option: 0, typed: 0, dismissed: 0, timed: 0, fast: 0 }));
+    return p;
+  };
+  const marks = new Map<string, string[]>();
   const sessions = new Map<string, Bucket & { session: string; project: string }>();
   const overrides: OverrideRow[] = [];
   const byCall = new Map<string, QuestionRow[]>();
@@ -548,8 +587,19 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
     const isRecent = answeredTs !== null && opts.now !== undefined && answeredTs > recentFrom && answeredTs <= opts.now;
     for (const row of callRows) {
       counts[row.outcome]++;
+      const profile = profileOf(row);
+      if (profile && row.outcome === 'DISMISSED') profile.dismissed++;
       if (!ANSWERED.has(row.outcome)) continue;
       counted = true;
+      if (profile) {
+        profile.answered++;
+        if (row.outcome === 'AGREED') profile.agreed++;
+        else if (row.outcome === 'OVERRODE_TYPED') profile.typed++;
+        else profile.option++;
+      }
+      const sessionMarks = marks.get(sessionKey);
+      if (sessionMarks) sessionMarks.push(row.outcome === 'AGREED' ? '1' : '0');
+      else marks.set(sessionKey, [row.outcome === 'AGREED' ? '1' : '0']);
       if (!sess) sessions.set(sessionKey, (sess = { ...bucket(), session: first.session, project: first.project }));
       const buckets = [overall, bump(projects, row.project), sess, ...SPLIT_KEYS.map((k) => bump(splits[k], valueOf(row, k)))];
       if (isRecent) buckets.push(recent);
@@ -570,6 +620,11 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
         sess?.elapsed.push(elapsed);
         // One prompt, one asker: the timing goes to the first question's skill, model, agent and product.
         for (const k of SPLIT_KEYS) bump(splits[k], valueOf(first, k)).elapsed.push(elapsed);
+        const profile = profileOf(first);
+        if (profile) {
+          profile.timed++;
+          if (elapsed < FAST_ANSWER_MS) profile.fast++;
+        }
       }
     }
   }
@@ -589,6 +644,14 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
       fast: overall.elapsed.filter((ms) => ms < FAST_ANSWER_MS).length,
     },
     recent: { agreed: recent.agreed, answered: recent.answered },
+    timeBuckets: overall.elapsed.reduce((buckets, ms) => {
+      buckets[Math.min(TIME_BUCKETS, Math.max(0, Math.floor(ms / TIME_BUCKET_MS)))]++;
+      return buckets;
+    }, new Array<number>(TIME_BUCKETS + 1).fill(0)),
+    modelProfiles: [...profiles.values()]
+      .filter((p) => p.name !== UNKNOWN)
+      .sort((a, b) => b.answered - a.answered || a.name.localeCompare(b.name))
+      .slice(0, PROFILE_MAX),
     splits: Object.fromEntries(
       SPLIT_KEYS.map((k) => [
         k,
@@ -601,7 +664,16 @@ export function aggregate(rows: readonly QuestionRow[], opts: AggregateOptions =
       .map(([project, b]) => ({ project, agreed: b.agreed, answered: b.answered, medianMs: median(b.elapsed), timed: b.elapsed.length }))
       .sort((a, b) => bySize(a, b) || a.project.localeCompare(b.project)),
     sessions: [...sessions.values()]
-      .map((s) => ({ session: s.session, project: s.project, lastTs: s.lastTs, agreed: s.agreed, answered: s.answered, medianMs: median(s.elapsed), timed: s.elapsed.length }))
+      .map((s) => ({
+        session: s.session,
+        project: s.project,
+        lastTs: s.lastTs,
+        agreed: s.agreed,
+        answered: s.answered,
+        medianMs: median(s.elapsed),
+        timed: s.elapsed.length,
+        marks: (marks.get(`${s.project}/${s.session}`) ?? []).slice(-SESSION_MARKS).join(''),
+      }))
       .sort((a, b) => newestFirst({ ts: a.lastTs }, { ts: b.lastTs }) || a.session.localeCompare(b.session))
       .slice(0, RECENT_SESSIONS),
     overrides: overrides.sort(newestFirst).slice(0, MAX_OVERRIDES),
@@ -643,6 +715,30 @@ export function weeklySeries(rows: readonly QuestionRow[], now: number, weeks: n
     if (row.outcome === 'AGREED') point.agreed++;
   }
   return points;
+}
+
+export interface WeekTime {
+  /** Monday 00:00 UTC of the week, the same weeks as weeklySeries(). */
+  start: number;
+  /** Median answer time of the prompts asked that week, or null when none was timed. */
+  medianMs: number | null;
+  timed: number;
+}
+
+/** The weekly median answer time for the same weeks as weeklySeries(): one timing per prompt, by the week it was asked. */
+export function weeklyTimes(rows: readonly QuestionRow[], now: number, weeks: number = TREND_WEEKS): WeekTime[] {
+  const last = weekStart(now);
+  const first = last - (weeks - 1) * WEEK_MS;
+  const elapsed: number[][] = Array.from({ length: weeks }, () => []);
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (row.askTs === null || row.elapsedMs === null || seen.has(row.call)) continue;
+    seen.add(row.call);
+    const start = weekStart(row.askTs);
+    if (start < first || start > last) continue;
+    elapsed[Math.round((start - first) / WEEK_MS)].push(row.elapsedMs);
+  }
+  return elapsed.map((list, i) => ({ start: first + i * WEEK_MS, medianMs: median(list), timed: list.length }));
 }
 
 // ---------------------------------------------------------------- listing

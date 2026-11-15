@@ -6,10 +6,12 @@ you nod along with the agent's recommendation. Everything stays on your machine.
 - **Needs you:** sessions waiting for input, waiting on a permission, or finished and unread,
   each with the command that resumes it.
 - **Recommendations taken:** of the questions where the agent marked exactly one option
-  "(Recommended)" and you answered, the share where you picked that option. Under it: the median
-  time you took to answer, the share you answered in under 15 seconds, and the share for the last
-  7 days. Then a 12-week trend, your recent sessions, the questions where you chose otherwise,
-  and the share split by skill, model, project, agent and product.
+  "(Recommended)" and you answered, the share where you picked that option. Under it: one bar
+  showing where every question went, and the share for the last 7 days. Beside it: a histogram
+  of how fast you answer, with the share under 15 seconds and the median. Then a 12-week trend
+  of the share and of the answer time, your recent sessions with a square per answer, the
+  questions where you chose otherwise, the share split by skill, model, project, agent and
+  product, and a spider diagram that compares how you respond to each model.
 
 A high share does not by itself mean the agent is right: it is the same number a reviewer who
 stopped reading would produce. Read it next to the answer times.
@@ -187,6 +189,10 @@ Per question of an AskUserQuestion call, the first rule that matches:
   many questions the prompt holds. It is elapsed time, not attention. The "under 15 s" share and
   every median are over timed prompts; a median is shown with at least 5 of them.
 - "Last 7 days" is the 168 hours before now, by the time of the answer.
+- Charts that sit near the top do not start at zero, and say so: the trend's share axis and the
+  dot tracks in the split tables name where they start. The spider diagram has a separate scale
+  per spoke, named at its edge, because its five measures differ in size; compare its outlines
+  spoke by spoke.
 - A session is dated by its latest answer.
 - A question Codex asked is counted by the same rules. When its tool returns with no answer at
   all, the question is dismissed.
@@ -219,7 +225,7 @@ refuses to write inside the repository. Delete that directory when you are done.
 |---|---|
 | `/` | the dashboard app (`dist/`, built by `scripts/build.ts`) |
 | `/api/inbox` | sessions that need you, as JSON |
-| `/api/judgment` | totals, the last 7 days, sessions, the splits (skill, model, project, agent, product) and the weekly trend from `outcomes.jsonl`, as JSON |
+| `/api/judgment` | totals, the last 7 days, the answer-time buckets, the profile per model, sessions, the splits (skill, model, project, agent, product) and the weekly trend of share and answer time from `outcomes.jsonl`, as JSON |
 | `/health` | app name, version, whether a newer version wants to take over, source states |
 
 The session-start hook starts the server when none is running. The first session start after

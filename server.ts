@@ -35,7 +35,7 @@ import {
   type InboxModel,
   type ShownSession,
 } from './inbox';
-import { FAST_ANSWER_MS, MIN_N } from './judgment';
+import { FAST_ANSWER_MS, MIN_N, TIME_BUCKET_MS } from './judgment';
 import { boardData } from './outcomes';
 import { INSTANCE_HEADER, STARTER_STEP_MS, STARTER_WAIT_MS, probeServer, type ServerState } from './hook';
 
@@ -98,6 +98,9 @@ export function judgmentJson(inbox: Inbox, version: string, now: number) {
     /** Questions whose model or skill another import could fill; 0 hides the hint. */
     needs_import: board.needsImport,
     weekly: board.weekly,
+    weekly_time: board.weeklyTime,
+    /** Width of one answer-time bucket in timeBuckets. */
+    time_bucket_ms: TIME_BUCKET_MS,
     capture: { unreadable_lines: board.unreadable, sources: board.sources },
   };
 }

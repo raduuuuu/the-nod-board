@@ -24,7 +24,8 @@
 import type { InboxPayload, JudgmentPayload, SessionPayload } from '../server';
 import { ago, clock, count, dayTime, duration, percent, share } from './format';
 import { freshness, type Link } from './poll';
-import { Trend } from './trend';
+import { Histogram, Marks, OutcomeBar, SeriesKey, Spider, TimeBar, Track, type OutcomeSegment } from './charts';
+import { Trend, axisStart } from './trend';
 
 export interface BoardProps {
   inbox: InboxPayload | null;
@@ -98,8 +99,12 @@ export function NeedsYou(props: { inbox: InboxPayload | null; now: number }) {
         ) : null,
       )}
       {inbox?.todos && inbox.todos.some((t) => t.items.length) ? (
-        <div class="group">
-          <h3>TODOS</h3>
+        // Backlog, not something that needs you right now: one line, opened on request.
+        <details class="more todos">
+          <summary>
+            <span class="closed">TODOS ({count(inbox.todos.reduce((n, t) => n + t.items.length, 0))})</span>
+            <span class="open">Hide TODOS</span>
+          </summary>
           <ul>
             {inbox.todos.flatMap((t) => t.items.map((item) => (
               <li>
@@ -107,7 +112,7 @@ export function NeedsYou(props: { inbox: InboxPayload | null; now: number }) {
               </li>
             )))}
           </ul>
-        </div>
+        </details>
       ) : null}
     </aside>
   );
@@ -151,24 +156,16 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
   const shown = share(j.overall, j.min_n);
   const c = j.counts;
   const excluded = c.EXCLUDED_MULTI + c.EXCLUDED_NO_REC;
-  // Only what is there: a count of zero says nothing.
-  const apart = [
-    c.DISMISSED ? `dismissed ${count(c.DISMISSED)}${j.inferred_dismissed ? ` (${count(j.inferred_dismissed)} inferred)` : ''}` : '',
-    c.UNANSWERED ? `unanswered ${count(c.UNANSWERED)}` : '',
-    c.UNDECODED ? `unreadable ${count(c.UNDECODED)}` : '',
-    excluded ? `excluded ${count(excluded)}` : '',
-  ].filter(Boolean);
-  const t = j.timing;
-  // The three figures beside the anchor. Each share keeps its count and the too-few rule.
-  const figures: { label: string; value: string; basis?: string }[] = [
-    { label: 'median answer', value: t.medianMs === null ? DASH : duration(t.medianMs) },
-    {
-      label: `under ${duration(j.fast_ms)}`,
-      value: t.n === 0 ? DASH : t.n < j.min_n ? TOO_FEW : percent(t.fast, t.n),
-      basis: t.n === 0 ? undefined : `${count(t.fast)} of ${count(t.n)}`,
-    },
-    { label: 'last 7 days', value: share(j.recent, j.min_n) ?? TOO_FEW, basis: `${count(j.recent.agreed)} of ${count(j.recent.answered)}` },
+  // Every question, to scale. A segment of zero is left out by the bar.
+  const segments: OutcomeSegment[] = [
+    { key: 'took', label: 'took', n: c.AGREED },
+    { key: 'other', label: 'chose otherwise', n: c.OVERRODE_OPTION + c.OVERRODE_TYPED },
+    { key: 'dismissed', label: 'dismissed', n: c.DISMISSED, note: j.inferred_dismissed ? `${count(j.inferred_dismissed)} inferred` : undefined },
+    { key: 'unanswered', label: 'unanswered', n: c.UNANSWERED },
+    { key: 'unreadable', label: 'unreadable', n: c.UNDECODED },
+    { key: 'excluded', label: 'excluded', n: excluded },
   ];
+  const t = j.timing;
   return (
     <section class="acceptance" aria-labelledby="acc-h">
       <h2 id="acc-h">Recommendations taken</h2>
@@ -176,30 +173,26 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
       {j.overall.answered === 0 ? (
         <p class="lead">No answered recommendations yet.</p>
       ) : (
-        <>
-          <p class="headline">
-            <span class="number">{shown ?? TOO_FEW}</span>
-            <span class="basis">
-              took the recommendation, {count(j.overall.agreed)} of {count(j.overall.answered)}
-            </span>
-          </p>
-          <dl class="figures">
-            {figures.map((f) => (
-              <div>
-                <dt>
-                  {f.label}
-                  {f.basis ? <span class="count">{f.basis}</span> : null}
-                </dt>
-                <dd>{f.value}</dd>
-              </div>
-            ))}
-          </dl>
-          <p class="muted framing">
-            A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.
-          </p>
-        </>
+        <div class="band">
+          <div class="band-main">
+            <p class="headline">
+              <span class="number">{shown ?? TOO_FEW}</span>
+              <span class="basis">
+                took the recommendation, {count(j.overall.agreed)} of {count(j.overall.answered)}
+              </span>
+            </p>
+            <OutcomeBar segments={segments} />
+            <p class="recent">
+              Last 7 days: {share(j.recent, j.min_n) ?? TOO_FEW} ({count(j.recent.agreed)} of {count(j.recent.answered)})
+            </p>
+            <p class="muted framing">
+              A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.
+            </p>
+          </div>
+          <Histogram buckets={j.timeBuckets} bucketMs={j.time_bucket_ms} fastMs={j.fast_ms} medianMs={t.medianMs} n={t.n} fast={t.fast} minN={j.min_n} />
+        </div>
       )}
-      {apart.length ? <p class="muted small">Not in the share: {apart.join(' · ')}</p> : null}
+      {j.overall.answered === 0 ? <OutcomeBar segments={segments} /> : null}
     </section>
   );
 }
@@ -226,8 +219,14 @@ export function RecentSessions(props: { judgment: JudgmentPayload | null; timeZo
               <tr>
                 <td class="when">{dayTime(s.lastTs, props.timeZone)}</td>
                 <th scope="row">{s.project}</th>
-                <td>
-                  {count(s.agreed)} of {count(s.answered)}
+                <td class="taken">
+                  <div>
+                    <Marks marks={s.marks} />
+                    <span>
+                      {count(s.agreed)} of {count(s.answered)}
+                      {s.answered > s.marks.length ? ` (latest ${count(s.marks.length)} shown)` : ''}
+                    </span>
+                  </div>
                 </td>
                 <td>{s.timed ? duration(s.medianMs) : DASH}</td>
               </tr>
@@ -305,13 +304,18 @@ export interface SplitRow {
  * than FOLD_ABOVE those rows become one closing line that keeps their total, so the counts on the
  * page still add up. A median answer time is shown only with `minN` timed prompts behind it.
  */
-export function Split(props: { id: string; title: string; rows: SplitRow[]; minN: number; loaded: boolean }) {
+export function Split(props: { id: string; title: string; rows: SplitRow[]; minN: number; loaded: boolean; from?: number; series?: string[] }) {
   if (props.loaded && !props.rows.length) return null;
   const fold = props.rows.length > FOLD_ABOVE;
   const keep = (r: SplitRow) => r.answered >= props.minN || r.name === UNKNOWN_ROW;
   const shown = fold ? props.rows.filter(keep) : props.rows;
   const folded = fold ? props.rows.filter((r) => !keep(r)) : [];
   const foldedAnswers = folded.reduce((n, r) => n + r.answered, 0);
+  // One scale per table, so its rows line up. The track starts at the trend's axis start, or lower
+  // when a row of this table would otherwise fall off it; the header says where it starts.
+  const rated = shown.filter((r) => r.answered >= props.minN);
+  const lowest = rated.length ? Math.min(...rated.map((r) => (100 * r.agreed) / r.answered)) : 100;
+  const from = Math.max(0, Math.min(props.from ?? 0, Math.floor(lowest / 10) * 10));
   return (
     <section aria-labelledby={props.id}>
       <h2 id={props.id}>{props.title}</h2>
@@ -320,20 +324,34 @@ export function Split(props: { id: string; title: string; rows: SplitRow[]; minN
           <thead>
             <tr>
               <th scope="col">Name</th>
-              <th scope="col" class="num">Share</th>
+              <th scope="col" class="num">Share{from > 0 ? `, from ${from}%` : ''}</th>
               <th scope="col" class="num">Answers</th>
               <th scope="col" class="num">Answer time</th>
             </tr>
           </thead>
           <tbody>
-            {shown.map((r) => (
-              <tr>
-                <th scope="row">{r.name}</th>
-                <td class="num">{share(r, props.minN) ?? TOO_FEW}</td>
-                <td class="num">{count(r.answered)}</td>
-                <td class="num">{r.timed >= props.minN ? duration(r.medianMs) : DASH}</td>
-              </tr>
-            ))}
+            {shown.map((r) => {
+              const seriesN = props.series ? props.series.indexOf(r.name) + 1 : 0;
+              const rate = r.answered >= props.minN ? (100 * r.agreed) / r.answered : null;
+              const timed = r.timed >= props.minN;
+              return (
+                <tr>
+                  <th scope="row">
+                    {seriesN ? <SeriesKey n={seriesN} /> : null}
+                    {r.name}
+                  </th>
+                  <td class="num">
+                    <Track share={rate} from={from} />
+                    <span class="val">{share(r, props.minN) ?? TOO_FEW}</span>
+                  </td>
+                  <td class="num">{count(r.answered)}</td>
+                  <td class="num">
+                    <TimeBar ms={timed ? r.medianMs : null} />
+                    <span class="val">{timed ? duration(r.medianMs) : DASH}</span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       ) : null}
@@ -397,30 +415,35 @@ const SPLIT_TITLES = { skill: 'By skill', model: 'By model', agent: 'By agent', 
 export function Board(props: BoardProps) {
   const j = props.judgment;
   const hasNumbers = !!j && j.overall.answered > 0;
+  // The split tracks start where the trend's share axis starts, so a dot means the same in both.
+  const from = j ? axisStart(j.weekly.slice(-props.weeks), j.min_n) : 0;
+  // The models drawn in the profile, in its order: their rows in By model carry the same key.
+  const profiled = (j?.modelProfiles ?? []).filter((p) => p.answered >= (j?.min_n ?? 0)).map((p) => p.name);
   return (
     <div class="board">
       <h1>The Nod Board</h1>
       <NeedsYou inbox={props.inbox} now={props.now} />
       <main>
         <Acceptance judgment={j} timeZone={props.timeZone} />
-        {hasNumbers ? <Trend weekly={j.weekly} minN={j.min_n} weeks={props.weeks} timeZone={props.timeZone} /> : null}
+        {hasNumbers ? <Trend weekly={j.weekly} weeklyTime={j.weekly_time} minN={j.min_n} weeks={props.weeks} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? <RecentSessions judgment={j} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? <Overrides judgment={j} timeZone={props.timeZone} /> : null}
         {hasNumbers ? <ImportHint judgment={j} /> : null}
         {!j || hasNumbers ? (
           <div class="splits">
-            {(['skill', 'model'] as const).map((k) => (
-              <Split id={`${k}-h`} title={SPLIT_TITLES[k]} loaded={!!j} minN={j?.min_n ?? 0} rows={j?.splits[k] ?? []} />
-            ))}
+            <Split id="skill-h" title={SPLIT_TITLES.skill} loaded={!!j} minN={j?.min_n ?? 0} from={from} rows={j?.splits.skill ?? []} />
+            <Split id="model-h" title={SPLIT_TITLES.model} loaded={!!j} minN={j?.min_n ?? 0} from={from} rows={j?.splits.model ?? []} series={profiled} />
             <Split
               id="proj-h"
               title="By project"
               loaded={!!j}
               minN={j?.min_n ?? 0}
+              from={from}
               rows={(j?.projects ?? []).map((p) => ({ name: p.project, agreed: p.agreed, answered: p.answered, medianMs: p.medianMs, timed: p.timed }))}
             />
+            {j ? <Spider profiles={j.modelProfiles} minN={j.min_n} fastMs={j.fast_ms} /> : null}
             {(['agent', 'product'] as const).map((k) => (
-              <Split id={`${k}-h`} title={SPLIT_TITLES[k]} loaded={!!j} minN={j?.min_n ?? 0} rows={j?.splits[k] ?? []} />
+              <Split id={`${k}-h`} title={SPLIT_TITLES[k]} loaded={!!j} minN={j?.min_n ?? 0} from={from} rows={j?.splits[k] ?? []} />
             ))}
           </div>
         ) : null}

@@ -6,8 +6,9 @@ import { render } from 'preact-render-to-string';
 import { Acceptance, Board, CaptureHealth, FOLD_ABOVE, IMPORT_COMMAND, ImportHint, LIST_ROWS, NeedsYou, Overrides, RecentSessions, Split, type BoardProps, type SplitRow } from './app/board';
 import { ago, count, dayTime, duration, percent, share } from './app/format';
 import { FAILURES_BEFORE_UNREACHABLE, SLOW_FIRST_MS, freshness, initialLink, onFailure, onSuccess } from './app/poll';
-import { Trend, type WeekPoint } from './app/trend';
-import { FAST_ANSWER_MS, MIN_N, OUTCOMES } from './judgment';
+import { Histogram, OutcomeBar, Spider, TIME_BAR_MAX_MS, TimeBar, Track, spokeScale, spokes, type Profile } from './app/charts';
+import { Trend, axisStart, type WeekPoint } from './app/trend';
+import { FAST_ANSWER_MS, MIN_N, OUTCOMES, TIME_BUCKETS, TIME_BUCKET_MS } from './judgment';
 import { CSP, makeHandler, type InboxPayload, type JudgmentPayload, type SessionPayload } from './server';
 import { Inbox } from './inbox';
 
@@ -52,6 +53,9 @@ const judgment = (extra: Partial<JudgmentPayload> = {}): JudgmentPayload => ({
   questions: 1545,
   timing: { n: 1362, medianMs: 41_654, fast: 274 },
   recent: { agreed: 124, answered: 138 },
+  // 1,362 timed prompts: 274 under 15 s in the first three buckets, 60 slower than 3 minutes in the last
+  timeBuckets: [90, 100, 84, ...Array.from({ length: TIME_BUCKETS - 3 }, (_, i) => (i < 4 ? 250 : i < 6 ? 14 : 0)), 60],
+  modelProfiles: [],
   splits: {
     skill: [
       { name: 'plan-review', agreed: 60, answered: 62, medianMs: 12_000, timed: 60 },
@@ -65,7 +69,7 @@ const judgment = (extra: Partial<JudgmentPayload> = {}): JudgmentPayload => ({
     { project: 'thing', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 },
     { project: 'tiny', agreed: 2, answered: 2, medianMs: 9_000, timed: 2 },
   ],
-  sessions: [{ session: 'sess-1', project: 'thing', lastTs: NOW - 3_600_000, agreed: 9, answered: 11, medianMs: 101_000, timed: 9 }],
+  sessions: [{ session: 'sess-1', project: 'thing', lastTs: NOW - 3_600_000, agreed: 9, answered: 11, medianMs: 101_000, timed: 9, marks: '11101111011' }],
   overrides: [
     { ts: NOW - 3_600_000, project: 'thing', title: 'Rename the module?', typed: false },
     { ts: NOW - 7_200_000, project: 'thing', title: 'Which name?', typed: true },
@@ -73,6 +77,8 @@ const judgment = (extra: Partial<JudgmentPayload> = {}): JudgmentPayload => ({
   inferred_dismissed: 0,
   needs_import: 0,
   weekly: weeks([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [174, 199], [3, 4], [329, 349], [353, 371], [293, 324], [124, 138]]),
+  weekly_time: weeks([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [174, 199], [3, 4], [329, 349], [353, 371], [293, 324], [124, 138]]).map((w) => ({ start: w.start, medianMs: w.answered ? 40_000 : null, timed: w.answered })),
+  time_bucket_ms: TIME_BUCKET_MS,
   capture: { unreadable_lines: 0, sources: { hook: true, import: true } },
   ...extra,
 });
@@ -80,6 +86,8 @@ const okLink = onSuccess(initialLink(NOW - 60_000), NOW - 3_000);
 const board = (extra: Partial<BoardProps> = {}) => render(<Board inbox={inbox()} judgment={judgment()} link={okLink} now={NOW} weeks={12} timeZone={UTC} {...extra} />);
 /** The text a reader sees, without the markup. */
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/&quot;/g, '"').replace(/\s+/g, ' ').trim();
+/** A table's markup without its row graphics: the drawings and the fixed-width wrapper of a number are taken out, the cells stay. */
+const cells = (html: string) => html.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<span class="val">([^<]*)<\/span>/g, '$1');
 
 describe('format', () => {
   test('counts, shares, durations and ages', () => {
@@ -200,14 +208,15 @@ describe('the acceptance number', () => {
     expect(html).not.toContain('%');
   });
 
-  test('the number, what it rests on, three figures under it with their counts, and the framing sentence', () => {
+  test('the number, what it rests on, where every question went, the last 7 days, how fast, and the framing sentence', () => {
     const html = render(<Acceptance judgment={judgment()} timeZone={UTC} />);
     expect(html).toContain('<span class="number">92%</span>');
     const t = text(html);
-    expect(t).toContain('92% took the recommendation, 1,281 of 1,387 median answer 42 s under 15 s 274 of 1,362 20% last 7 days 124 of 138 90%');
+    expect(t).toContain('92% took the recommendation, 1,281 of 1,387 took 1,281 chose otherwise 106 dismissed 53 excluded 105 Last 7 days: 90% (124 of 138)');
+    expect(t).toContain('How fast you answer');
+    expect(t).toContain('20% under 15 s (274 of 1,362) · median 42 s');
     expect((html.match(/class="number"/g) ?? []).length).toBe(1); // one anchor
     expect(t).toContain('A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.');
-    expect(t).toContain('Not in the share: dismissed 53 · excluded 105');
     expect(t).not.toContain('unanswered');
     expect(t).not.toContain('unreadable');
     expect(html).not.toContain('banner');
@@ -300,7 +309,7 @@ describe('overrides and splits', () => {
   });
 
   test('splits: a share with its count, "too few" under five, and real table headers', () => {
-    const html = board();
+    const html = cells(board());
     expect(html).toContain('<th scope="row">thing</th><td class="num">90%</td><td class="num">100</td><td class="num">30 s</td>');
     expect(html).toContain('<th scope="row">tiny</th><td class="num">too few</td><td class="num">2</td><td class="num">–</td>');
     expect(html).not.toContain('By label');
@@ -309,33 +318,47 @@ describe('overrides and splits', () => {
   });
 });
 
-describe('the three figures', () => {
+describe('the last 7 days, the answer times and the outcome key', () => {
   const figures = (extra: Partial<JudgmentPayload>) => text(render(<Acceptance judgment={judgment(extra)} timeZone={UTC} />));
 
-  test('no timed answer: dashes for both time figures, and no count that would read 0 of 0', () => {
+  test('no timed answer: the histogram says so, with no share and no count that would read 0 of 0', () => {
     const t = figures({ timing: { n: 0, medianMs: null, fast: 0 } });
-    expect(t).toContain('median answer – under 15 s – last 7 days');
+    expect(t).toContain('How fast you answer Too few timed answers to draw (0).');
+    expect(t).not.toContain('under 15 s');
+    expect(t).not.toContain('0 of 0');
   });
 
   test('fewer than five timed answers, or five answers in the last 7 days: "too few" with the count', () => {
     const t = figures({ timing: { n: 4, medianMs: 9_000, fast: 3 }, recent: { agreed: 2, answered: 3 } });
-    expect(t).toContain('under 15 s 3 of 4 too few');
-    expect(t).toContain('last 7 days 2 of 3 too few');
+    expect(t).toContain('Too few timed answers to draw (4).');
+    expect(t).toContain('Last 7 days: too few (2 of 3)');
     expect(t).not.toContain('75%');
     expect(t).not.toContain('67%');
   });
 
-  test('nothing set apart: the "Not in the share" line is absent', () => {
-    expect(figures({ counts: { ...emptyCounts, AGREED: 9, OVERRODE_OPTION: 1 } })).not.toContain('Not in the share');
+  test('nothing set apart: the key names only what exists', () => {
+    const t = figures({ counts: { ...emptyCounts, AGREED: 9, OVERRODE_OPTION: 1 } });
+    expect(t).toContain('took 9 chose otherwise 1 Last 7 days');
+    expect(t).not.toContain('dismissed');
+    expect(t).not.toContain('excluded');
   });
 });
 
 describe('recent sessions', () => {
-  const sessionRow = (i: number, extra = {}) => ({ session: `s${i}`, project: `proj ${i}`, lastTs: NOW - i * 3_600_000, agreed: i, answered: i + 1, medianMs: 20_000, timed: 1, ...extra });
+  const sessionRow = (i: number, extra = {}) => ({ session: `s${i}`, project: `proj ${i}`, lastTs: NOW - i * 3_600_000, agreed: i, answered: i + 1, medianMs: 20_000, timed: 1, marks: '1'.repeat(i) + '0', ...extra });
 
   test('when it last answered, the project, counts instead of a share, and the answer time', () => {
     const t = text(render(<RecentSessions judgment={judgment()} timeZone={UTC} />));
     expect(t).toBe('Recent sessions Last answer Project Taken Answer time Nov 12, 13:02 thing 9 of 11 101 s');
+  });
+
+  test('a square per answer in order, filled when the recommendation was taken; a longer session says how many are shown', () => {
+    const html = render(<RecentSessions judgment={judgment()} timeZone={UTC} />);
+    expect((html.match(/class="mark took"/g) ?? []).length).toBe(9);
+    expect((html.match(/class="mark other"/g) ?? []).length).toBe(2);
+    expect(html).toMatch(/<svg class="marks"[^>]*aria-hidden="true"/); // the count beside it says the same
+    const long = render(<RecentSessions judgment={judgment({ sessions: [sessionRow(80, { marks: '1'.repeat(60) })] })} timeZone={UTC} />);
+    expect(text(long)).toContain('80 of 81 (latest 60 shown)');
   });
 
   test('ten at most, none: the block is absent, no timed answer: a dash', () => {
@@ -386,7 +409,7 @@ describe('a split table', () => {
   });
 
   test('an answer time needs five timed prompts behind it', () => {
-    const html = split([row('a', 20, { timed: 5 }), row('b', 20, { timed: 4 })]);
+    const html = cells(split([row('a', 20, { timed: 5 }), row('b', 20, { timed: 4 })]));
     expect(html).toContain('<th scope="row">a</th><td class="num">100%</td><td class="num">20</td><td class="num">12 s</td>');
     expect(html).toContain('<th scope="row">b</th><td class="num">100%</td><td class="num">20</td><td class="num">–</td>');
   });
@@ -398,7 +421,7 @@ describe('a split table', () => {
 
 describe('the splits by who asked', () => {
   test('a row per skill with its share, count and answer time; a split with one row is still shown', () => {
-    const html = board();
+    const html = cells(board());
     expect(html).toContain('<th scope="row">plan-review</th><td class="num">97%</td><td class="num">62</td><td class="num">12 s</td>');
     expect(html).toContain('<th scope="row">no skill</th><td class="num">79%</td><td class="num">38</td><td class="num">55 s</td>');
     expect(html).toContain('<th scope="row">main agent</th>');
@@ -411,7 +434,7 @@ describe('the splits by who asked', () => {
       { name: 'tiny', agreed: 1, answered: 1, medianMs: null, timed: 0 },
       { name: 'unknown', agreed: 2, answered: 2, medianMs: null, timed: 0 },
     ];
-    const html = render(<Split id="x-h" title="By skill" rows={rows} minN={MIN_N} loaded />);
+    const html = cells(render(<Split id="x-h" title="By skill" rows={rows} minN={MIN_N} loaded />));
     expect(html).toContain('<th scope="row">unknown</th><td class="num">too few</td><td class="num">2</td>');
     expect(html).not.toContain('<th scope="row">tiny</th>');
     expect(text(html)).toContain('1 more with too few answers (1 answer in total)');
@@ -473,7 +496,9 @@ describe('the whole page', () => {
       judgment: judgment({
         overrides: [{ ts: NOW, project: XSS, title: XSS, typed: false }],
         projects: [{ project: XSS, agreed: 5, answered: 5, medianMs: null, timed: 0 }],
-        sessions: [{ session: 's', project: `<img src=x onerror=alert(1)>`, lastTs: NOW, agreed: 5, answered: 5, medianMs: null, timed: 0 }],
+        sessions: [{ session: 's', project: `<img src=x onerror=alert(1)>`, lastTs: NOW, agreed: 5, answered: 5, medianMs: null, timed: 0, marks: '11111' }],
+        modelProfiles: [{ name: XSS, answered: 9, agreed: 8, option: 1, typed: 0, dismissed: 0, timed: 9, fast: 2 }],
+        splits: { ...judgment().splits, model: [{ name: XSS, agreed: 8, answered: 9, medianMs: 30_000, timed: 9 }] },
         version: XSS,
       }),
     });
@@ -573,11 +598,154 @@ describe('the build', () => {
   test('DESIGN.md and the stylesheet agree on the tokens', () => {
     const design = fs.readFileSync(path.join(import.meta.dir, 'DESIGN.md'), 'utf8');
     const css = fs.readFileSync(path.join(import.meta.dir, 'app', 'app.css'), 'utf8');
-    for (const color of ['#fff', '#121212', '#1a1a1a', '#ececec', '#666', '#9a9a9a', '#e3e3e3', '#2c2c2c', '#b4005a', '#ff6fae']) {
+    for (const color of ['#fff', '#121212', '#1a1a1a', '#ececec', '#666', '#9a9a9a', '#e3e3e3', '#2c2c2c', '#b4005a', '#ff6fae', '#0b5fa5', '#6cb2ee', '#b85c00', '#f0a04b', '#2f7d4f', '#6fcf97', '#0f766e', '#4fd1c5']) {
       expect([color, design.includes(`\`${color}\``), css.includes(color)]).toEqual([color, true, true]);
     }
     for (const size of ['13px', '16px', '20px', '40px']) expect([size, design.includes(size), css.includes(size)]).toEqual([size, true, true]);
     expect(css).not.toMatch(/box-shadow|gradient|border-radius/);
+  });
+});
+
+describe('the charts', () => {
+  const rects = (html: string) => (html.match(/<rect /g) ?? []).length;
+  const profile = (name: string, extra: Partial<Profile> = {}): Profile => ({ name, answered: 100, agreed: 90, option: 8, typed: 2, dismissed: 4, timed: 80, fast: 20, ...extra });
+
+  test('histogram: a bar per 5 seconds, an open bar for everything slower, the 15 s limit and the median marked, and the same in words', () => {
+    const j = judgment();
+    const html = render(<Histogram buckets={j.timeBuckets} bucketMs={j.time_bucket_ms} fastMs={j.fast_ms} medianMs={j.timing.medianMs} n={j.timing.n} fast={j.timing.fast} minN={MIN_N} />);
+    expect(rects(html)).toBe(TIME_BUCKETS + 1);
+    expect((html.match(/class="bar over"/g) ?? []).length).toBe(1);
+    expect(html).toContain('class="marker"');
+    expect(html).toContain('class="median"');
+    expect(html).toContain('aria-label="Answer times of 1,362 question prompts. 20% were answered in under 15 s; the median is 42 s."');
+    expect(text(html)).toContain('15 s 0 1 min 2 min 3 min+ 20% under 15 s (274 of 1,362) · median 42 s');
+    expect(html).not.toContain('NaN');
+  });
+
+  test('histogram: with fewer than five timed answers it draws nothing and says how many there are', () => {
+    const html = render(<Histogram buckets={judgment().timeBuckets} bucketMs={TIME_BUCKET_MS} fastMs={FAST_ANSWER_MS} medianMs={9_000} n={4} fast={3} minN={MIN_N} />);
+    expect(html).not.toContain('<svg');
+    expect(text(html)).toBe('How fast you answer Too few timed answers to draw (4).');
+  });
+
+  test('outcome bar: every question to scale, nothing for a count of zero, and the same in words', () => {
+    const html = render(
+      <OutcomeBar
+        segments={[
+          { key: 'took', label: 'took', n: 75 },
+          { key: 'other', label: 'chose otherwise', n: 25 },
+          { key: 'dismissed', label: 'dismissed', n: 0 },
+          { key: 'excluded', label: 'excluded', n: 100, note: '7 inferred' },
+        ]}
+      />,
+    );
+    expect(html).toContain('aria-label="Of 200 questions: took 75, chose otherwise 25, excluded 100."');
+    expect(html).toContain('<rect class="seg took" x="0.5" y="0.5" width="224" height="9">'); // 75 of 200 on a width of 600, less the outline
+    expect(html).not.toContain('seg dismissed');
+    expect(text(html)).toBe('took 75 chose otherwise 25 excluded 100 (7 inferred)');
+    expect(render(<OutcomeBar segments={[{ key: 'took', label: 'took', n: 0 }]} />)).toBe('');
+  });
+
+  test('track: the dot runs from the stated start to 100%, stays on the track, and is absent without a share', () => {
+    expect(render(<Track share={80} from={80} />)).toContain('cx="4"');
+    expect(render(<Track share={100} from={80} />)).toContain('cx="76"');
+    expect(render(<Track share={90} from={80} />)).toContain('cx="40"');
+    expect(render(<Track share={50} from={80} />)).toContain('cx="4"');
+    expect(render(<Track share={null} from={80} />)).not.toContain('<circle');
+    expect(render(<Track share={90} from={80} />)).toContain('aria-hidden="true"'); // the number beside it says the same
+  });
+
+  test('time bar: one scale for every table; a longer time fills the width as an outline; no time, no bar', () => {
+    expect(render(<TimeBar ms={TIME_BAR_MAX_MS / 2} />)).toContain('<rect class="bar" x="0" y="3.5" width="28" height="5">');
+    expect(render(<TimeBar ms={TIME_BAR_MAX_MS} />)).toContain('class="bar"');
+    expect(render(<TimeBar ms={TIME_BAR_MAX_MS + 1} />)).toContain('<rect class="bar over" x="0.5" y="4" width="55" height="4">');
+    expect(render(<TimeBar ms={null} />)).not.toContain('<rect');
+  });
+
+  test('the five measures of a profile, and the scale of a spoke', () => {
+    const s = spokes(profile('m'), MIN_N, '15 s');
+    expect(s.map((k) => k.label)).toEqual(['took it', 'under 15 s', 'chose another', 'typed own answer', 'dismissed']);
+    expect(s[0].value).toBe(0.9);
+    expect(s[1].value).toBe(0.25);
+    expect(s[2].value).toBe(0.08);
+    expect(s[3].value).toBe(0.02);
+    expect(s[4].value).toBeCloseTo(4 / 104, 10); // of the answered and the dismissed together
+    expect(spokes(profile('m', { timed: MIN_N - 1, fast: 1 }), MIN_N, '15 s')[1].value).toBeNull(); // too few timed prompts for a share
+    expect(spokes(profile('m', { answered: 0, agreed: 0, option: 0, typed: 0, dismissed: 0 }), MIN_N, '15 s')[0].value).toBeNull(); // never NaN
+    expect([spokeScale([0.9, 0.87]), spokeScale([0.21, 0.25]), spokeScale([0.02, null]), spokeScale([0.04]), spokeScale([null]), spokeScale([1])]).toEqual([0.9, 0.25, 0.02, 0.04, 0.02, 1]);
+    expect(spokeScale([0.131])).toBe(0.15);
+  });
+
+  test('spider: an outline per model with enough answers, each with its own color and line style, a key, and every number in words', () => {
+    const html = render(<Spider profiles={[profile('m-a'), profile('m-b', { agreed: 80, option: 15, typed: 5 }), profile('m-few', { answered: MIN_N - 1 })]} minN={MIN_N} fastMs={FAST_ANSWER_MS} />);
+    expect((html.match(/<polygon class="outline"/g) ?? []).length).toBe(2);
+    expect(html).toContain('<g class="series s1">');
+    expect(html).toContain('<g class="series s2">');
+    expect(html).not.toContain('m-few');
+    expect(html).toContain('m-a: took it 90%, under 15 s 25%, chose another 8%, typed own answer 2%, dismissed 4%. m-b: took it 80%');
+    const t = text(html);
+    expect(t).toContain('How you respond, per model took it edge = 90% under 15 s edge = 25% chose another edge = 15% typed own answer edge = 6% dismissed edge = 4%');
+    expect(t).toContain('m-a (100 answers) m-b (100 answers)');
+    expect(t).toContain('Each spoke has its own scale, from 0 at the centre to the value named at its edge.');
+    expect(t).toContain('The exact numbers are in By model.');
+  });
+
+  test('spider: one model says so; none with enough answers and the block is absent; a missing measure has no point', () => {
+    expect(text(render(<Spider profiles={[profile('m-a')]} minN={MIN_N} fastMs={FAST_ANSWER_MS} />))).toContain('Only one model has enough answers to draw.');
+    expect(render(<Spider profiles={[profile('m-few', { answered: 1 })]} minN={MIN_N} fastMs={FAST_ANSWER_MS} />)).toBe('');
+    expect(render(<Spider profiles={[]} minN={MIN_N} fastMs={FAST_ANSWER_MS} />)).toBe('');
+    const untimed = render(<Spider profiles={[profile('m-a', { timed: 0, fast: 0 })]} minN={MIN_N} fastMs={FAST_ANSWER_MS} />);
+    expect((untimed.match(/<circle class="vertex"/g) ?? []).length).toBe(4 + 1); // four measures, and the key
+    expect(untimed).toContain('under 15 s not known');
+    expect(untimed).not.toContain('NaN');
+  });
+
+  test('on the page: the profile follows By project, and a profiled model carries its key in By model', () => {
+    const page = board({
+      judgment: judgment({
+        modelProfiles: [profile('m-a'), profile('m-b')],
+        splits: { ...judgment().splits, model: [{ name: 'm-a', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 }, { name: 'm-b', agreed: 90, answered: 100, medianMs: 30_000, timed: 80 }, { name: 'unknown', agreed: 5, answered: 5, medianMs: null, timed: 0 }] },
+      }),
+    });
+    expect(page.indexOf('How you respond, per model')).toBeGreaterThan(page.indexOf('By project'));
+    expect(page.indexOf('How you respond, per model')).toBeLessThan(page.indexOf('By agent'));
+    expect(page).toContain('<th scope="row"><svg class="serieskey series s1"');
+    expect(page).toContain('<th scope="row"><svg class="serieskey series s2"');
+    expect(page).toContain('<th scope="row">unknown</th>');
+    expect(board()).not.toContain('How you respond, per model'); // no model with enough answers: no profile
+  });
+
+  test('on the page: the split tracks start where the trend axis starts, and the header says where', () => {
+    expect(axisStart(judgment().weekly, MIN_N)).toBe(80); // the lowest drawn week is 174 of 199, 87%
+    expect(axisStart(weeks([[5, 5], [0, 5]]), MIN_N)).toBe(0);
+    expect(axisStart(weeks([[99, 100]]), MIN_N)).toBe(90); // never above 90
+    expect(axisStart(weeks([[1, 4]]), MIN_N)).toBe(0); // no week drawn
+    const page = board();
+    expect(page).toContain('<th scope="col" class="num">Share, from 70%</th>'); // By skill holds a row at 79%, so its track starts lower
+    expect(page).toContain('<th scope="col" class="num">Share, from 80%</th>');
+  });
+
+  test('trend: weekly median answer times as squares on the same weeks, drawn only with five timed prompts, and in the table', () => {
+    const j = judgment();
+    const html = render(<Trend weekly={j.weekly} weeklyTime={j.weekly_time} minN={MIN_N} weeks={12} timeZone={UTC} />);
+    expect((html.match(/class="tick"/g) ?? []).length).toBe(5); // six weeks have times; the week with 4 has none drawn
+    expect((html.match(/class="link thin"/g) ?? []).length).toBe(3);
+    const t = text(html);
+    expect(t).toContain('Dots show the share taken; the share axis starts at 80%. Squares show the median answer time. Bars show how many answers each week had.');
+    expect(t).toContain('Weekly numbers Week of Share Answers Median answer');
+    expect(t).toContain('Nov 9 90% 138 40 s');
+    expect(html).toContain('100%</text>');
+    expect(html).toContain('90%</text>');
+    expect(html).toContain('80%</text>');
+    const none = render(<Trend weekly={j.weekly} weeklyTime={j.weekly_time.map((w) => ({ ...w, timed: 0, medianMs: null }))} minN={MIN_N} weeks={12} timeZone={UTC} />);
+    expect(none).not.toContain('class="tick"');
+    expect(text(none)).not.toContain('Median answer');
+  });
+
+  test('gstack TODOS are folded away under their count', () => {
+    const html = render(<NeedsYou inbox={inbox({ todos: [{ project: 'owner-repo', file: 'f', items: ['one', 'two'] }, { project: 'other', file: 'g', items: ['three'] }] })} now={NOW} />);
+    expect(html).toContain('<details class="more todos">');
+    expect(text(html)).toContain('TODOS (3)');
   });
 });
 
