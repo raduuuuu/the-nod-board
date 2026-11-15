@@ -255,7 +255,7 @@ describe('trend', () => {
 
   test('a dot per qualifying week, a bar for every week, and the line only between adjacent qualifying weeks', () => {
     const html = render(<Trend weekly={judgment().weekly} minN={MIN_N} weeks={12} timeZone={UTC} />);
-    expect(bars(html)).toBe(12);
+    expect(bars(html)).toBe(6); // the six weeks before the first answer are not drawn
     expect(circles(html)).toBe(5); // six weeks have answers; the week with 4 has a bar and no dot
     expect(links(html)).toBe(3); // 174/199 | gap | 329/349 - 353/371 - 293/324 - 124/138
     expect(html).toContain('class="bar thin"');
@@ -265,17 +265,55 @@ describe('trend', () => {
   test('the same numbers as a table, and a text summary on the chart itself', () => {
     const html = render(<Trend weekly={judgment().weekly} minN={MIN_N} weeks={12} timeZone={UTC} />);
     expect(html).toContain('role="img"');
-    expect(html).toMatch(/aria-label="Share of recommendations taken per week over the last 12 weeks\. 5 weeks have at least 5 answers; the latest of those is 90%\."/);
+    expect(html).toMatch(/aria-label="Share of recommendations taken per week over the last 6 weeks\. 5 weeks have at least 5 answers; the latest of those is 90%\."/);
     const t = text(html);
     expect(t).toContain('Weekly numbers Week of Share Answers');
     expect(t).toContain('Nov 9 90% 138');
     expect(t).toContain('Oct 12 too few 4');
     expect(t).toContain('Oct 5 87% 199');
-    expect(html).toContain('<th scope="row">Aug 24</th><td class="num"></td><td class="num">0</td>'); // an empty week has no share at all
+    expect(t).not.toContain('Aug 24'); // the chart and the table begin at the first week with an answer
+    const gap = render(<Trend weekly={weeks([[9, 10], [0, 0], [9, 10]])} minN={MIN_N} weeks={12} timeZone={UTC} />);
+    expect(gap).toContain('<th scope="row">Nov 2</th><td class="num"></td><td class="num">0</td>'); // an empty week has no share at all
+  });
+
+  test('a history shorter than the window: only the weeks since the first answer, and the heading counts them', () => {
+    const html = render(<Trend weekly={judgment().weekly} minN={MIN_N} weeks={12} timeZone={UTC} />);
+    const t = text(html);
+    expect(t).toContain('Trend, last 6 weeks');
+    expect(t).toContain('Oct 5'); // the first week with an answer labels the axis
+    expect(html).toMatch(/<circle class="dot" cx="103\.1\d*"/); // its dot sits in the first sixth of the drawing, not in the right half
+    // an empty week after the first answer stays, as a gap in the line
+    const gap = render(<Trend weekly={weeks([[0, 0], [9, 10], [0, 0], [9, 10]])} minN={MIN_N} weeks={12} timeZone={UTC} />);
+    expect([bars(gap), circles(gap), links(gap)]).toEqual([3, 2, 0]);
+    expect(text(gap)).toContain('Trend, last 3 weeks');
+    // twelve weeks of answers are all drawn
+    expect(bars(render(<Trend weekly={weeks(Array.from({ length: 12 }, () => [9, 10] as [number, number]))} minN={MIN_N} weeks={12} timeZone={UTC} />))).toBe(12);
+  });
+
+  test('drawn at the width of the page column, within limits; the plot widens and the heights stay', () => {
+    const at = (width: number | undefined) => render(<Trend weekly={judgment().weekly} minN={MIN_N} weeks={12} width={width} timeZone={UTC} />);
+    expect(at(1064)).toContain('viewBox="0 0 1064 168"');
+    expect(at(1063.6)).toContain('viewBox="0 0 1064 168"');
+    expect(at(100)).toContain('viewBox="0 0 280 168"');
+    expect(at(5000)).toContain('viewBox="0 0 1400 168"');
+    expect(at(undefined)).toContain('viewBox="0 0 600 168"'); // not measured yet
+    expect(at(1064)).toContain('<line class="rule" x1="58" x2="1064" y1="10" y2="10">');
+    expect(board({ trendWidth: 900 })).toContain('viewBox="0 0 900 '); // the page hands its width on
+  });
+
+  test('a single week: one dot, one bar no wider than a bar, and no second axis label', () => {
+    const html = render(<Trend weekly={weeks([[0, 0], [0, 0], [9, 10]])} minN={MIN_N} weeks={12} timeZone={UTC} />);
+    expect([bars(html), circles(html)]).toEqual([1, 1]);
+    expect(text(html)).toContain('Trend, this week');
+    expect(html).toContain('over the last 1 week. 1 week has at least 5 answers');
+    expect(html).toMatch(/<rect class="bar"[^>]*width="48"/);
+    expect((text(html).match(/this week/g) ?? []).length).toBe(2); // the heading and the one axis label
+    expect((text(html).match(/Nov 9/g) ?? []).length).toBe(1); // in the table only, not under the chart
   });
 
   test('narrow screens show the last 8 weeks', () => {
-    const html = render(<Trend weekly={judgment().weekly} minN={MIN_N} weeks={8} timeZone={UTC} />);
+    const full = weeks(Array.from({ length: 12 }, () => [9, 10] as [number, number]));
+    const html = render(<Trend weekly={full} minN={MIN_N} weeks={8} timeZone={UTC} />);
     expect(bars(html)).toBe(8);
     expect(text(html)).toContain('Trend, last 8 weeks');
     expect(text(html)).not.toContain('Aug 24');
@@ -483,7 +521,7 @@ describe('the whole page', () => {
     expect((html.match(/<main/g) ?? []).length).toBe(1);
     expect(html).toContain('<aside class="needs" aria-labelledby="needs-h">');
     expect(html).toContain('<footer aria-label="Capture health">');
-    const order = ['Needs you', 'Recommendations taken', 'Trend, last 12 weeks', 'Recent sessions', 'Where you overrode', 'By skill', 'By model', 'By project', 'By agent', 'By product', 'live since'].map((s) => html.indexOf(s));
+    const order = ['Needs you', 'Recommendations taken', 'Trend, last 6 weeks', 'Recent sessions', 'Where you overrode', 'By skill', 'By model', 'By project', 'By agent', 'By product', 'live since'].map((s) => html.indexOf(s));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
     // Every heading that labels a region exists.

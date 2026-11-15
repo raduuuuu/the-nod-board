@@ -8,7 +8,7 @@ you nod along with the agent's recommendation. Everything stays on your machine.
 - **Recommendations taken:** of the questions where the agent marked exactly one option
   "(Recommended)" and you answered, the share where you picked that option. Under it: one bar
   showing where every question went, and the share for the last 7 days. Beside it: a histogram
-  of how fast you answer, with the share under 15 seconds and the median. Then a 12-week trend
+  of how fast you answer, with the share under 15 seconds and the median. Then a trend of up to 12 weeks
   of the share and of the answer time, your recent sessions with a square per answer, the
   questions where you chose otherwise, the share split by skill, model, project, agent and
   product, and a spider diagram that compares how you respond to each model.

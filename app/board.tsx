@@ -34,6 +34,8 @@ export interface BoardProps {
   now: number;
   /** Weeks shown in the trend: 12, or 8 on screens under 640px. */
   weeks: number;
+  /** Width of the main column in pixels, once measured: the trend is drawn at that width. */
+  trendWidth?: number;
   timeZone?: string;
   /** Where this page is served, taken from its own location; shown in capture health. */
   address?: string;
@@ -425,7 +427,7 @@ export function Board(props: BoardProps) {
       <NeedsYou inbox={props.inbox} now={props.now} />
       <main>
         <Acceptance judgment={j} timeZone={props.timeZone} />
-        {hasNumbers ? <Trend weekly={j.weekly} weeklyTime={j.weekly_time} minN={j.min_n} weeks={props.weeks} timeZone={props.timeZone} /> : null}
+        {hasNumbers ? <Trend weekly={j.weekly} weeklyTime={j.weekly_time} minN={j.min_n} weeks={props.weeks} width={props.trendWidth} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? <RecentSessions judgment={j} timeZone={props.timeZone} /> : null}
         {!j || hasNumbers ? <Overrides judgment={j} timeZone={props.timeZone} /> : null}
         {hasNumbers ? <ImportHint judgment={j} /> : null}

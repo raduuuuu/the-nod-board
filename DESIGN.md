@@ -105,6 +105,11 @@ A dot per week for the share, a bar beneath for the number of answers. Weeks und
 show the bar only, drawn as an outline. Dots are joined only between adjacent weeks that both qualify. The same
 numbers are available as a table.
 
+The chart covers up to 12 weeks (8 on a narrow screen) and begins at the first week that has
+an answer, so a shorter history fills the drawing. The chart spans the main column: it is drawn
+at the column's width in pixels, so labels keep their size and only the plot widens; the heading counts the weeks shown ("Trend,
+last 6 weeks"). Empty weeks after the first answer stay, as gaps. A bar is at most 48 units wide.
+
 The share axis starts at the round ten at or below the lowest week drawn, never above 90%, so
 a share that stays near the top is not a flat line. The axis labels and the line under the
 chart both say where it starts. Between the share and the bars, a second panel shows the weekly

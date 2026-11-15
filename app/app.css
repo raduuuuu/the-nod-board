@@ -112,7 +112,7 @@ svg .dot{fill:var(--text)}
 .banner{border-top:1px solid var(--text);border-bottom:1px solid var(--text);padding:var(--s2) 0;margin-bottom:var(--s4)}
 
 /* Trend */
-.trend svg{display:block;width:100%;height:auto;max-width:760px}
+.trend svg{display:block;width:100%;height:auto}
 .trend .axis{font:400 11px var(--sans);fill:var(--muted)}
 .trend .rule{stroke:var(--line);stroke-width:1}
 .trend .rule.strong{stroke:var(--muted)}

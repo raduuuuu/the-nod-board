@@ -22,9 +22,15 @@ export function axisStart(points: readonly WeekPoint[], minN: number): number {
   return Math.max(0, Math.min(90, Math.floor(Math.min(...shares) / 10) * 10));
 }
 
-/** Drawing width in SVG units. The narrow drawing is used with 8 weeks, so its labels stay near their real size on a phone. */
+/**
+ * Drawing width in SVG units. The page passes the width of its main column, so the chart spans
+ * it and one unit is one pixel: labels keep their size and only the plot gets wider. Without a
+ * measured width (the first paint) the narrow drawing is used with 8 weeks and the wide one otherwise.
+ */
 const WIDE = 600;
 const NARROW = 380;
+export const MIN_WIDTH = 280;
+export const MAX_WIDTH = 1400;
 const SHARE_TOP = 10;
 const SHARE_H = 90;
 const BAR_TOP = 116;
@@ -33,6 +39,7 @@ const BAR_H = 34;
 const TIME_H = 36;
 const TIME_GAP = 24;
 const LEFT = 58; // room for the widest axis label, "answers"
+const BAR_MAX_W = 48;
 
 /**
  * Weekly trend: a dot per week for the share, a bar beneath for how many answers it rests on.
@@ -40,18 +47,26 @@ const LEFT = 58; // room for the widest axis label, "answers"
  * between adjacent weeks that both have a dot, so thin weeks appear as gaps, never as swings.
  * The same numbers are available as a table for screen readers and for exact reading.
  *
+ * The chart begins at the first week that has an answer: a history shorter than `weeks` fills
+ * the drawing instead of leaving it half empty, and the heading says how many weeks are shown.
+ * Empty weeks after that first one stay, as gaps.
+ *
  * The share axis starts at axisStart() and says so. With `weeklyTime`, a second panel shows the
  * weekly median answer time on the same weeks, drawn only for weeks with `minN` timed prompts.
  */
-export function Trend(props: { weekly: WeekPoint[]; weeklyTime?: WeekTime[]; minN: number; weeks: number; timeZone?: string }) {
-  const points = props.weekly.slice(-props.weeks);
-  if (!points.some((p) => p.answered >= props.minN)) return null; // hidden until one week qualifies
-  const W = props.weeks <= 8 ? NARROW : WIDE;
+export function Trend(props: { weekly: WeekPoint[]; weeklyTime?: WeekTime[]; minN: number; weeks: number; width?: number; timeZone?: string }) {
+  const window = props.weekly.slice(-props.weeks);
+  if (!window.some((p) => p.answered >= props.minN)) return null; // hidden until one week qualifies
+  const firstWeek = window.findIndex((p) => p.answered > 0);
+  const points = window.slice(firstWeek);
+  const W = props.width ? Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.round(props.width))) : props.weeks <= 8 ? NARROW : WIDE;
   const step = (W - LEFT) / points.length;
   const x = (i: number) => LEFT + step * (i + 0.5);
+  // With few weeks a bar would be as wide as its column; it stays a bar.
+  const barW = Math.min(step * 0.6, BAR_MAX_W);
   const from = axisStart(points, props.minN);
   const y = (p: WeekPoint) => SHARE_TOP + SHARE_H * (1 - Math.max(0, (100 * p.agreed) / p.answered - from) / (100 - from));
-  const times = (props.weeklyTime ?? []).slice(-props.weeks);
+  const times = (props.weeklyTime ?? []).slice(-props.weeks).slice(firstWeek);
   const timed = points.map((_, i) => (times[i] && times[i].timed >= props.minN && times[i].medianMs !== null ? (times[i].medianMs as number) : null));
   const hasTimes = timed.some((v) => v !== null);
   const maxTime = Math.max(1, ...timed.map((v) => v ?? 0));
@@ -65,10 +80,10 @@ export function Trend(props: { weekly: WeekPoint[]; weeklyTime?: WeekTime[]; min
   const lines: [number, number][] = [];
   for (let i = 1; i < points.length; i++) if (shown[i - 1] && shown[i]) lines.push([i - 1, i]);
   const qualifying = points.filter((_, i) => shown[i]);
-  const summary = `Share of recommendations taken per week over the last ${points.length} weeks. ${qualifying.length} weeks have at least ${props.minN} answers; the latest of those is ${percent(qualifying[qualifying.length - 1].agreed, qualifying[qualifying.length - 1].answered)}.`;
+  const summary = `Share of recommendations taken per week over the last ${points.length} ${points.length === 1 ? 'week' : 'weeks'}. ${qualifying.length} ${qualifying.length === 1 ? 'week has' : 'weeks have'} at least ${props.minN} answers; the latest of those is ${percent(qualifying[qualifying.length - 1].agreed, qualifying[qualifying.length - 1].answered)}.`;
   return (
     <section class="trend" aria-labelledby="trend-h">
-      <h2 id="trend-h">Trend, last {points.length} weeks</h2>
+      <h2 id="trend-h">Trend, {points.length === 1 ? 'this week' : `last ${points.length} weeks`}</h2>
       <svg viewBox={`0 0 ${W} ${barTop + BAR_H + 18}`} role="img" aria-label={summary} preserveAspectRatio="xMidYMid meet">
         <text class="axis" x={LEFT - 6} y={SHARE_TOP + 4} text-anchor="end">100%</text>
         <text class="axis" x={LEFT - 6} y={SHARE_TOP + SHARE_H / 2 + 4} text-anchor="end">{(100 + from) / 2}%</text>
@@ -94,10 +109,10 @@ export function Trend(props: { weekly: WeekPoint[]; weeklyTime?: WeekTime[]; min
         ) : null}
         {points.map((p, i) => {
           const h = p.answered ? Math.max(2, (BAR_H * p.answered) / maxAnswered) : 0;
-          return <rect class={shown[i] ? 'bar' : 'bar thin'} x={x(i) - step * 0.3} y={barTop + BAR_H - h} width={step * 0.6} height={h} />;
+          return <rect class={shown[i] ? 'bar' : 'bar thin'} x={x(i) - barW / 2} y={barTop + BAR_H - h} width={barW} height={h} />;
         })}
         <text class="axis" x={LEFT - 6} y={barTop + BAR_H} text-anchor="end">answers</text>
-        <text class="axis" x={x(0)} y={barTop + BAR_H + 14} text-anchor="middle">{day(points[0].start, props.timeZone)}</text>
+        {points.length > 1 ? <text class="axis" x={x(0)} y={barTop + BAR_H + 14} text-anchor="middle">{day(points[0].start, props.timeZone)}</text> : null}
         <text class="axis" x={x(points.length - 1)} y={barTop + BAR_H + 14} text-anchor="middle">this week</text>
       </svg>
       <p class="muted small">

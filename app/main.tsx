@@ -20,6 +20,8 @@ function App() {
   const [link, setLink] = useState<Link>(() => initialLink(Date.now()));
   const [now, setNow] = useState(() => Date.now());
   const [narrow, setNarrow] = useState(() => window.matchMedia(NARROW).matches);
+  // The width of the main column in pixels: the trend is drawn at exactly that width.
+  const [mainWidth, setMainWidth] = useState<number | undefined>(undefined);
 
   useEffect(() => {
     let stopped = false;
@@ -49,7 +51,14 @@ function App() {
     const media = window.matchMedia(NARROW);
     const onMedia = () => setNarrow(media.matches);
     media.addEventListener('change', onMedia);
+    const measure = () => {
+      const width = Math.floor(document.querySelector('main')?.clientWidth ?? 0);
+      setMainWidth(width > 0 ? width : undefined);
+    };
+    measure();
+    window.addEventListener('resize', measure);
     return () => {
+      window.removeEventListener('resize', measure);
       stopped = true;
       clearInterval(poll);
       clearInterval(tick);
@@ -59,7 +68,7 @@ function App() {
   }, []);
 
   // The page knows its own address; the port is whatever this server was started on.
-  return <Board inbox={inbox} judgment={judgment} link={link} now={now} weeks={narrow ? 8 : 12} address={`${window.location.origin}/`} />;
+  return <Board inbox={inbox} judgment={judgment} link={link} now={now} weeks={narrow ? 8 : 12} trendWidth={mainWidth} address={`${window.location.origin}/`} />;
 }
 
 render(<App />, document.getElementById('app')!);
