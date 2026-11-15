@@ -13,6 +13,7 @@ import {
   fold,
   foldIntoSnapshot,
   mapTodoProject,
+  todoProject,
   maybeCompact,
   parseLines,
   readEventLog,
@@ -301,9 +302,33 @@ describe('todos', () => {
     fs.writeFileSync(path.join(home, 'notes.md'), '## ignored\n');
     const t = readTodos(root, ['toy-shop', 'someone'])!;
     expect(t.map((x) => [x.project, x.items])).toEqual([
-      [UNASSIGNED, ['One']],
+      ['other', ['One']], // no gstack project of that name: the file's own name, not "Unassigned"
       ['toy-shop', ['P2 — Gallery', 'P3 — Search']],
     ]);
+  });
+
+  test('a TODO file is named after its project: mapped, else the one project starting with its name, else its own name', () => {
+    const known = ['toy-shop', 'track-planner', 'owner-TrackPlanner', 'big-shop', UNASSIGNED];
+    expect(todoProject('toy-shop', known)).toBe('toy-shop');
+    expect(todoProject('TrackPlanner', known)).toBe('owner-TrackPlanner');
+    expect(todoProject('track', known)).toBe('track-planner'); // the first word of one project
+    expect(todoProject('toy', ['toy-shop', 'toy-box'])).toBe('toy'); // two projects start with it: its own name
+    expect(todoProject('shop', known)).toBe('shop'); // ambiguous as a repo name: its own name
+    expect(todoProject('other', known)).toBe('other');
+    expect(todoProject('Unassigned', known)).toBe('Unassigned');
+  });
+
+  test('on the board a TODO list takes the user\'s alias, like every other project name', async () => {
+    const dir = tmp();
+    const stateRoot = path.join(dir, 'gstack');
+    fs.mkdirSync(path.join(stateRoot, 'projects', 'someone'), { recursive: true });
+    fs.mkdirSync(path.join(stateRoot, 'projects', 'track-planner'));
+    fs.writeFileSync(path.join(stateRoot, 'projects', 'someone', 'track-TODOS.md'), '## One\n');
+    fs.writeFileSync(path.join(stateRoot, 'projects', 'someone', 'other-TODOS.md'), '## Two\n');
+    const cfg = { dir, stateRoot, home: '/Users/someone', transcriptsDir: '/nonexistent' };
+    expect((await new Inbox(cfg).model(T0)).todos!.map((t) => t.project)).toEqual(['other', 'track-planner']);
+    fs.writeFileSync(path.join(dir, 'project-aliases.json'), JSON.stringify({ 'track-planner': 'Planner' }));
+    expect((await new Inbox(cfg).model(T0)).todos!.map((t) => t.project)).toEqual(['other', 'Planner']);
   });
 });
 

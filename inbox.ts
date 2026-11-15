@@ -335,7 +335,8 @@ export async function maybeCompact(dir: string, opts: CompactOptions = {}): Prom
 // ---------------------------------------------------------------- TODOS
 
 export interface TodoFile {
-  project: string; // known slug, or UNASSIGNED
+  /** The gstack project the file belongs to, else the name the file itself carries. Never empty. */
+  project: string;
   file: string;
   items: string[];
 }
@@ -358,6 +359,19 @@ export function todoHeadings(text: string): string[] {
     .filter((l) => l.startsWith('## '))
     .map((l) => l.slice(3).trim())
     .filter(Boolean);
+}
+
+/**
+ * The project a `<name>-TODOS.md` file is shown under: the gstack project it maps to
+ * (mapTodoProject); else the one project whose name begins with "<name>-" (a file named after
+ * the first word of its project); else the name the file carries. A list is never shown under
+ * "Unassigned" when its own file says what it is for.
+ */
+export function todoProject(name: string, knownSlugs: readonly string[]): string {
+  const mapped = mapTodoProject(name, knownSlugs);
+  if (mapped !== UNASSIGNED) return mapped;
+  const starts = knownSlugs.filter((slug) => slug !== UNASSIGNED && slug.startsWith(`${name}-`));
+  return starts.length === 1 ? starts[0] : name;
 }
 
 /** Returns null when the projects root is missing. */
@@ -388,7 +402,7 @@ export function readTodos(stateRoot: string, knownSlugs: Iterable<string>): Todo
       } catch {
         continue;
       }
-      out.push({ project: mapTodoProject(m[1], known), file, items: todoHeadings(text) });
+      out.push({ project: todoProject(m[1], known), file, items: todoHeadings(text) });
     }
   }
   return out;
@@ -716,7 +730,8 @@ export class Inbox {
       permission: by('PERMISSION_ASKED'),
       doneUnread: by('DONE_UNREAD'),
       stale: by('STALE'),
-      todos: readTodos(this.cfg.stateRoot, known),
+      // Named like every other project on the page: the user's aliases apply.
+      todos: readTodos(this.cfg.stateRoot, known)?.map((t) => ({ ...t, project: shownName(aliases, t.project) })) ?? null,
       health: {
         events: log.missing ? 'none yet' : 'ok',
         unreadable: log.stats.unreadable,

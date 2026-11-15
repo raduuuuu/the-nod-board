@@ -273,7 +273,8 @@ is Preact; the fonts are IBM Plex (SIL Open Font License), shipped with the buil
 holds the design rules the stylesheet follows.
 
 gstack is optional: when its state directory exists, the Needs you column also lists its TODO
-files.
+files. Each list is named after the gstack project its file belongs to (`<name>-TODOS.md`), else
+after the name the file carries, and your project aliases apply.
 
 ## When something looks wrong
 

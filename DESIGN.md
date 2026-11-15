@@ -76,7 +76,8 @@ the browser's own disclosure, styled as 13px underlined text in the text color w
 "Show all 50", then "Show 10". Its open state survives the refresh.
 
 gstack TODOS, when there are any, sit under Needs you behind the same kind of disclosure,
-closed, labelled with their count: "TODOS (33)".
+closed, labelled with their count: "TODOS (33)". Each item begins with its project's name in
+bold; a list is never shown as "Unassigned" when its file says what it is for.
 
 Recent sessions shows a square per answer, in order, 30 to a line: filled took the
 recommendation, hollow chose otherwise. The latest 60 are drawn; a longer session says so beside
