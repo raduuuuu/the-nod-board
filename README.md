@@ -29,7 +29,8 @@ Claude Code session ── hooks/hooks.json ──> hook.ts (run by Bun)
 
 /nod-board:import ──> reads past transcripts once ──> outcomes.jsonl
 
-server.ts (127.0.0.1:4777, read-only) ──> /api/inbox, /api/judgment ──> the dashboard app
+server.ts (127.0.0.1, port 4777 or the next free one up to 4786, read-only)
+          ──> /api/inbox, /api/judgment ──> the dashboard app
 ```
 
 It needs [Bun](https://bun.sh) and nothing else. When Bun is missing, the session start says
@@ -93,7 +94,8 @@ and only then tags `v<version>`. Nothing is built or published by hand.
 ## What is stored
 
 Two append-only files in `~/.agent-inbox` (files 0600, directory 0700), beside a few one-line
-marker files (when capture began, the address you were last told about, a pending server start):
+marker files (when capture began, the port the server took, the address you were last told
+about, a pending server start, when the last import ran):
 
 - `events.jsonl`: per hook event, the session id, working directory, event name, notification
   type, notification text (cut to 500 characters) and time. At 5 MB it is compacted to at most
@@ -110,7 +112,7 @@ ends, or after 7 days.
 Never stored: option text, the answer you picked or typed, prompts, tool input or output.
 Transcripts are read only when you run the import, in memory; the hook never opens them. Nothing leaves the machine: the
 server binds 127.0.0.1, rejects any Host header other than `127.0.0.1:<port>` or
-`localhost:<port>`, and has no route that changes anything.
+`localhost:<port>` for the port it took, and has no route that changes anything.
 
 You can read both files with any text tool; that is deliberate.
 
@@ -177,9 +179,17 @@ The session-start hook starts the server when none is running. The first session
 install waits up to 2 seconds for it to answer, so the line it shows names an address that
 works; no other session start waits. If a start never comes up, the next session start says so
 once and names the log. After a plugin update, the next
-session start records the version it wants; the older server reports itself stale on `/health`
-and exits, and a detached starter brings up the new one. No process is killed. If another
-program holds the port, the session start says so; set `AGENT_INBOX_PORT` to a free port.
+session start records the version it wants; the running server notices within 2 seconds that
+another version is wanted and exits by itself, and a detached starter brings up the new one. The
+same happens in reverse when you go back to an older version. No process is killed.
+
+Which port: the server takes 4777, or the next free port up to 4786 when another program holds
+it, and writes the port it took to `~/.agent-inbox/server-address.json`. The session line, the
+footer, `/nod-board:open` and `/nod-board:status` all show that address. If you set
+`AGENT_INBOX_PORT`, only that port is used; when another program holds it, the session start
+says so. There is one server per data folder: a second start finds the first and leaves, with
+no lock file to go stale. A board serving another data folder on the same machine (another
+user, or a checkout with its own `AGENT_INBOX_DIR`) is left alone.
 
 The page may load scripts, styles, fonts and data from this server only, with no inline script
 (Content-Security-Policy). The app renders all session text as text. Its only runtime dependency
@@ -205,6 +215,7 @@ files.
 
 ## Environment
 
-`AGENT_INBOX_DIR` (data directory), `AGENT_INBOX_PORT` (default 4777),
+`AGENT_INBOX_DIR` (data directory), `AGENT_INBOX_PORT` (one fixed port; without it the first free
+port from 4777 to 4786),
 `AGENT_INBOX_TRANSCRIPTS` (default `~/.claude/projects`), `AGENT_INBOX_GSTACK_STATE_ROOT`
 (else `GSTACK_STATE_ROOT`, `GSTACK_HOME`, `GSTACK_STATE_DIR`, `~/.gstack`).

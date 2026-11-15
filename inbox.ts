@@ -459,6 +459,72 @@ export function portFromEnv(env: Record<string, string | undefined> = process.en
   return Number(env.AGENT_INBOX_PORT) || DEFAULT_PORT;
 }
 
+// ---------------------------------------------------------------- which port
+//
+//   AGENT_INBOX_PORT set   -> that port and no other (the user chose it)
+//   not set                -> the first free port of 4777..4786, taken by the server when it starts
+//
+// The server writes the port it took to server-address.json. The hook and the commands read that
+// file to know where the board is; they never scan. A file that names a port nobody answers on
+// is harmless: the reader checks /health before it believes it.
+
+/** How many ports, counting up from DEFAULT_PORT, the server may choose from. */
+export const PORT_RANGE = 10;
+export const ADDRESS_FILE = 'server-address.json';
+
+/** The port the user fixed with AGENT_INBOX_PORT, or null when the server may choose. */
+export function explicitPort(env: Record<string, string | undefined> = process.env): number | null {
+  const n = Number(env.AGENT_INBOX_PORT);
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : null;
+}
+
+/** The ports the server may listen on, lowest first. */
+export function candidatePorts(env: Record<string, string | undefined> = process.env): number[] {
+  const fixed = explicitPort(env);
+  return fixed !== null ? [fixed] : Array.from({ length: PORT_RANGE }, (_, i) => DEFAULT_PORT + i);
+}
+
+/** The port the running server said it took, or null. Only a port number is ever read from the file. */
+export function readAddressPort(dir: string): number | null {
+  try {
+    const n = JSON.parse(fs.readFileSync(path.join(dir, ADDRESS_FILE), 'utf8')).port;
+    return Number.isInteger(n) && n > 0 && n < 65536 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+export function writeAddressPort(dir: string, port: number): void {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmp = path.join(dir, `${ADDRESS_FILE}.tmp-${process.pid}`);
+  fs.writeFileSync(tmp, JSON.stringify({ port }) + '\n', { mode: 0o600 });
+  fs.renameSync(tmp, path.join(dir, ADDRESS_FILE));
+}
+
+/** Remove the address file when it still names `port`: a server leaving must not erase its successor's entry. */
+export function clearAddressPort(dir: string, port: number): void {
+  if (readAddressPort(dir) === port) fs.rmSync(path.join(dir, ADDRESS_FILE), { force: true });
+}
+
+/**
+ * Where to look for the board: the fixed port, else the one the server recorded (when it is a
+ * port the server could have chosen), else the first of the range.
+ */
+export function knownPort(env: Record<string, string | undefined>, dir: string): number {
+  const ports = candidatePorts(env);
+  if (ports.length === 1) return ports[0];
+  const recorded = readAddressPort(dir);
+  return recorded !== null && ports.includes(recorded) ? recorded : ports[0];
+}
+
+/**
+ * Names this data directory in /health, so that a server for another user's or another
+ * checkout's data is not mistaken for this one. Not a secret: a short hash of the path.
+ */
+export function instanceId(dir: string): string {
+  return new Bun.CryptoHasher('sha256').update(path.resolve(dir)).digest('hex').slice(0, 12);
+}
+
 /** The board's address, the one place it is spelled out. Always this machine. */
 export function boardUrl(port: number): string {
   return `http://127.0.0.1:${port}/`;

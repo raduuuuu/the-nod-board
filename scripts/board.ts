@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type ServerState, type StartDeps } from '../hook';
-import { APP_TITLE, boardUrl, captureSince, portFromEnv } from '../inbox';
+import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort } from '../inbox';
 import { readObservations } from '../outcomes';
 
 type Env = Record<string, string | undefined>;
@@ -46,22 +46,24 @@ export function realIo(): BoardIo {
 
 /** Make sure the current server answers, starting it when needed. Never waits longer than the starter does. */
 async function ensureRunning(env: Env, deps: StartDeps): Promise<ServerState> {
-  const port = portFromEnv(env);
-  let state = await deps.probe(port, deps.version);
-  if (state === 'current' || state === 'foreign') return state;
+  const dir = dataDir(env);
+  const fixed = explicitPort(env) !== null;
+  let state = await deps.probe(knownPort(env, dir), deps.version);
+  if (state === 'current' || (state === 'foreign' && fixed)) return state;
   await runStarter(env, deps);
   for (let waited = 0; waited < STARTER_WAIT_MS; waited += STARTER_STEP_MS) {
-    state = await deps.probe(port, deps.version);
+    // The server records the port it took; look there each time.
+    state = await deps.probe(knownPort(env, dir), deps.version);
     if (state === 'current') return state;
     await deps.sleep(STARTER_STEP_MS);
   }
-  return state;
+  return state === 'foreign' && !fixed ? 'silent' : state;
 }
 
 export async function openBoard(env: Env, deps: StartDeps, io: BoardIo): Promise<string[]> {
-  const port = portFromEnv(env);
-  const url = boardUrl(port);
   const state = await ensureRunning(env, deps);
+  const port = knownPort(env, dataDir(env));
+  const url = boardUrl(port);
   if (state === 'foreign') return [`${APP_TITLE}: port ${port} is used by another program, so the dashboard is not running. Set AGENT_INBOX_PORT to a free port.`];
   if (state !== 'current') return [`${APP_TITLE}: the dashboard did not start. The log is ${path.join(dataDir(env), 'server.log')}.`];
   return io.openInBrowser(url) ? [`${APP_TITLE}: opened ${url}`] : [`${APP_TITLE} is running at ${url}`, 'Open that address in your browser.'];
@@ -86,9 +88,11 @@ function errorLines(dir: string): number {
 /** What a user needs to tell whether capture works, and what to paste into a bug report. Counts only. */
 export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promise<string[]> {
   const dir = dataDir(env);
-  const port = portFromEnv(env);
+  const port = knownPort(env, dir);
   const url = boardUrl(port);
-  const state = await deps.probe(port, deps.version);
+  const probed = await deps.probe(port, deps.version);
+  // Another program on a port the user did not fix is not in the way: the server takes the next one.
+  const state: ServerState = probed === 'foreign' && explicitPort(env) === null ? 'silent' : probed;
   const running: Record<ServerState, string> = {
     current: `yes, at ${url}`,
     stale: `an older version is answering at ${url}; it is replaced at the next session start or by /nod-board:open`,
@@ -124,5 +128,5 @@ if (import.meta.main) {
     console.log('usage: bun scripts/board.ts open|status');
     process.exit(2);
   }
-  console.log((await run(process.env, realDeps(path.join(import.meta.dir, '..')), realIo())).join('\n'));
+  console.log((await run(process.env, realDeps(path.join(import.meta.dir, '..'), process.env), realIo())).join('\n'));
 }

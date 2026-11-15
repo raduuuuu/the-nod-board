@@ -21,18 +21,23 @@ import {
   APP_NAME,
   DEFAULT_PORT,
   Inbox,
+  candidatePorts,
   captureSince,
+  clearAddressPort,
   configFromEnv,
+  instanceId,
   maybeCompact,
   pluginVersion,
   portFromEnv,
   readWantedVersion,
   recoverLeftovers,
+  writeAddressPort,
   type InboxModel,
   type ShownSession,
 } from './inbox';
 import { FAST_ANSWER_MS, MIN_N } from './judgment';
 import { boardData } from './outcomes';
+import { INSTANCE_HEADER, STARTER_STEP_MS, STARTER_WAIT_MS, probeServer, type ServerState } from './hook';
 
 export { DEFAULT_PORT };
 export const CSP =
@@ -154,11 +159,13 @@ export interface ServerOptions {
 export function makeHandler(inbox: Inbox, getPort: () => number, opts: ServerOptions = {}) {
   const version = opts.version ?? pluginVersion();
   const distDir = opts.distDir ?? DIST_DIR;
+  const instance = instanceId(inbox.cfg.dir);
   let staleReported = false;
   return async (req: Request): Promise<Response> => {
     const plain = (status: number, body: string) =>
       new Response(body, { status, headers: { ...SECURITY_HEADERS, 'Content-Type': 'text/plain; charset=utf-8' } });
-    const json = (body: unknown) => new Response(JSON.stringify(body), { headers: { ...SECURITY_HEADERS, 'Content-Type': 'application/json' } });
+    const json = (body: unknown, extra: Record<string, string> = {}) =>
+      new Response(JSON.stringify(body), { headers: { ...SECURITY_HEADERS, 'Content-Type': 'application/json', ...extra } });
     if (!allowedHost(req.headers.get('host'), getPort())) return plain(403, 'forbidden host\n');
     if (req.method !== 'GET' && req.method !== 'HEAD') return plain(405, 'read-only\n');
     const url = new URL(req.url);
@@ -183,7 +190,7 @@ export function makeHandler(inbox: Inbox, getPort: () => number, opts: ServerOpt
           ok: hl.ok,
           last_event_ts: hl.lastEventTs,
           sources: { events: hl.events, todos: hl.todos, unreadable_lines: hl.unreadable + hl.partial, hook_errors: hl.hookErrors },
-        });
+        }, { [INSTANCE_HEADER]: instance }); // which data directory this server serves; the body keeps its 0.1.1 shape
       }
       const found = staticFile(distDir, url.pathname);
       if (found) return new Response(Bun.file(found.file), { headers: { ...SECURITY_HEADERS, 'Content-Type': found.type } });
@@ -197,7 +204,10 @@ export function makeHandler(inbox: Inbox, getPort: () => number, opts: ServerOpt
 }
 
 export interface StartOptions extends ServerOptions {
+  /** Listen on exactly this port (0 for any). Without it, the first free port of `ports` is taken. */
   port?: number;
+  /** The ports to choose from, lowest first; defaults to candidatePorts() from the environment. */
+  ports?: readonly number[];
   inbox?: Inbox;
   compact?: { thresholdBytes?: number; graceMs?: number; everyMs?: number } | false;
 }
@@ -205,13 +215,21 @@ export interface StartOptions extends ServerOptions {
 export function start(opts: StartOptions = {}) {
   const cfg = configFromEnv();
   const inbox = opts.inbox ?? new Inbox(cfg);
-  const port = opts.port ?? portFromEnv();
-  let actualPort = port;
-  const server = Bun.serve({
-    hostname: '127.0.0.1',
-    port,
-    fetch: makeHandler(inbox, () => actualPort, opts),
-  });
+  let actualPort = 0;
+  const handler = makeHandler(inbox, () => actualPort, opts);
+  // The operating system arbitrates: binding either succeeds or the port is somebody else's.
+  const ports = opts.port !== undefined ? [opts.port] : (opts.ports ?? candidatePorts());
+  let server: ReturnType<typeof Bun.serve> | null = null;
+  let lastError: unknown = null;
+  for (const port of ports) {
+    try {
+      server = Bun.serve({ hostname: '127.0.0.1', port, fetch: handler });
+      break;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (!server) throw new Error(`no free port among ${ports.join(', ')}: ${(lastError as Error)?.message ?? 'unknown error'}`);
   actualPort = server.port;
   let timer: ReturnType<typeof setInterval> | null = null;
   if (opts.compact !== false) {
@@ -240,8 +258,104 @@ export function start(opts: StartOptions = {}) {
   };
 }
 
+// ---------------------------------------------------------------- one server per data directory
+//
+//   bind the first free port of the range            (start, above)
+//   then ask every LOWER port of the range:
+//       a current server of ours answers  -> leave: it was there first. It holds the lower port,
+//                                            which is why this start could only get a higher one,
+//                                            and a bound server answers /health at once.
+//       an older server of ours answers   -> wait for it to leave (it exits by itself, below)
+//       another program, or nobody        -> not our concern
+//   then record the port in server-address.json and serve.
+//
+//   Every WANTED_CHECK_MS: the plugin version a session start asked for differs from mine
+//       -> remove my address entry and exit. No probe is needed for that, so an older hook that
+//          looks only at its own port (a rollback) still gets a free field.
+//
+// No lock file: nothing can be left behind by a crash, and two starts cannot both stay.
+
+export const WANTED_CHECK_MS = 2_000;
+
+export interface SettleDeps {
+  version: string;
+  probe: (port: number, version: string) => Promise<ServerState>;
+  sleep: (ms: number) => Promise<void>;
+}
+
+/** After binding `port`: 'stay', or 'leave' because a current server of ours holds a lower port. */
+export async function settle(port: number, ports: readonly number[], deps: SettleDeps): Promise<'stay' | 'leave'> {
+  for (const lower of ports.filter((p) => p < port)) {
+    for (let waited = 0; ; waited += STARTER_STEP_MS) {
+      const state = await deps.probe(lower, deps.version);
+      if (state === 'current') return 'leave';
+      if (state !== 'stale' || waited >= STARTER_WAIT_MS) break;
+      await deps.sleep(STARTER_STEP_MS);
+    }
+  }
+  return 'stay';
+}
+
+export interface ServeOptions extends StartOptions {
+  /** Called instead of process.exit, with the reason; tests use it. */
+  onLeave?: (reason: 'another-server' | 'not-wanted' | 'stale') => void;
+  settle?: Partial<SettleDeps>;
+}
+
+/**
+ * Start the board the way the installed plugin does: take a port, make sure no other server of
+ * ours for this data is running, publish the address, and leave when another version is wanted.
+ * Returns null when it left at once.
+ */
+export async function serve(opts: ServeOptions = {}) {
+  const version = opts.version ?? pluginVersion();
+  const cfg = configFromEnv();
+  const inbox = opts.inbox ?? new Inbox(cfg);
+  const dir = inbox.cfg.dir;
+  const ports = opts.port !== undefined ? [opts.port] : (opts.ports ?? candidatePorts());
+  let watch: ReturnType<typeof setInterval> | null = null;
+  let left = false;
+  const leave = (reason: 'another-server' | 'not-wanted' | 'stale') => {
+    if (left) return;
+    left = true;
+    if (watch) clearInterval(watch);
+    try {
+      clearAddressPort(dir, started.port);
+    } catch {
+      // the file is a hint; a reader checks /health before it believes it
+    }
+    started.stop();
+    if (opts.onLeave) opts.onLeave(reason);
+    else process.exit(0);
+  };
+  // Leave the reply time to flush, then go; the hook's starter is waiting for this server to leave.
+  const started = start({ ...opts, inbox, version, ports, onStale: () => setTimeout(() => leave('stale'), 100) });
+  const instance = instanceId(dir);
+  const decision = await settle(started.port, ports, {
+    version,
+    probe: (port, wanted) => probeServer(port, wanted, fetch, instance),
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+    ...opts.settle,
+  });
+  if (decision === 'leave') {
+    leave('another-server');
+    return null;
+  }
+  writeAddressPort(dir, started.port);
+  watch = setInterval(() => {
+    const wanted = readWantedVersion(dir);
+    if (wanted !== null && wanted !== version) leave('not-wanted');
+  }, WANTED_CHECK_MS);
+  return { ...started, leave };
+}
+
 if (import.meta.main) {
-  // Leave the reply time to flush, then exit; the hook's starter is waiting for the port.
-  const s = start({ version: pluginVersion(), onStale: () => setTimeout(() => process.exit(0), 100) });
-  console.log(`The Nod Board is listening on http://127.0.0.1:${s.port}/`);
+  try {
+    const s = await serve({ version: pluginVersion() });
+    if (s) console.log(`The Nod Board is listening on http://127.0.0.1:${s.port}/`);
+    else console.log('The Nod Board is already running for this data folder; this start left.');
+  } catch (err) {
+    console.error(`nod-board: could not start: ${(err as Error).message}`);
+    process.exit(1);
+  }
 }

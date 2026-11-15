@@ -27,12 +27,15 @@ import {
   APP_NAME,
   APP_TITLE,
   boardUrl,
+  candidatePorts,
   clearStartPending,
+  explicitPort,
+  instanceId,
+  knownPort,
   markAddressShown,
   markCaptureStart,
   markStartPending,
   pluginVersion,
-  portFromEnv,
   shownAddress,
   startPendingSince,
   writeWantedVersion,
@@ -219,7 +222,13 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
 //     stale    -> launch the starter                 silent  -> start `bun server.ts`, done
 //
 // No process is ever killed and the server gains no write route: an older server learns from the
-// wanted-version file that it should leave, says so on /health and exits.
+// wanted-version file that it should leave and exits by itself (server.ts), on whatever port it holds.
+//
+// Which port: the hook looks where the server said it is (server-address.json, or the fixed
+// AGENT_INBOX_PORT) and nowhere else. The starter looks at every port the server may choose,
+// because it must not start a second server beside one that is running or leaving. Another
+// program on a port matters only when the user fixed that port; otherwise the server simply
+// takes the next one.
 //
 // What the user is told at session start, each at most once:
 //
@@ -239,6 +248,8 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
 
 export type ServerState = 'current' | 'stale' | 'silent' | 'foreign';
 export const PROBE_TIMEOUT_MS = 250;
+/** On /health: which data directory the server serves (inbox.ts instanceId). */
+export const INSTANCE_HEADER = 'X-Nod-Board-Instance';
 export const STARTER_WAIT_MS = 5_000;
 export const STARTER_STEP_MS = 200;
 /** How long the first session start waits for the server it launched, so it can show a working address. */
@@ -253,7 +264,12 @@ export function failedStartLine(dir: string): string {
   return `${APP_TITLE}: the dashboard did not start. The log is ${path.join(dir, 'server.log')}.`;
 }
 
-export async function probeServer(port: number, version: string, fetchImpl: typeof fetch = fetch): Promise<ServerState> {
+/**
+ * What answers on a port. `instance` names this data directory (inbox.ts instanceId): a server of
+ * this program that serves other data, another user's or another checkout's, is not ours. A
+ * server too old to say which data it serves is taken as ours, so an update can replace it.
+ */
+export async function probeServer(port: number, version: string, fetchImpl: typeof fetch = fetch, instance?: string): Promise<ServerState> {
   let res: Response;
   try {
     res = await fetchImpl(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
@@ -263,6 +279,8 @@ export async function probeServer(port: number, version: string, fetchImpl: type
   try {
     const body = (await res.json()) as Record<string, unknown>;
     if (body.app !== APP_NAME) return 'foreign';
+    const theirs = res.headers?.get(INSTANCE_HEADER) ?? null;
+    if (instance !== undefined && theirs !== null && theirs !== instance) return 'foreign';
     return body.version === version && body.stale !== true ? 'current' : 'stale';
   } catch {
     return 'foreign';
@@ -284,9 +302,16 @@ function launchDetached(args: string[], logFile: string | null) {
   child.unref();
 }
 
-export function realDeps(root: string = import.meta.dir): StartDeps {
+export function realDeps(root: string = import.meta.dir, env: Record<string, string | undefined> = process.env): StartDeps {
   const version = pluginVersion(root);
-  return { root, version, probe: probeServer, launch: launchDetached, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
+  const instance = instanceId(dataDir(env));
+  return {
+    root,
+    version,
+    probe: (port, wanted) => probeServer(port, wanted, fetch, instance),
+    launch: launchDetached,
+    sleep: (ms) => new Promise((r) => setTimeout(r, ms)),
+  };
 }
 
 /**
@@ -295,8 +320,7 @@ export function realDeps(root: string = import.meta.dir): StartDeps {
  */
 export async function onSessionStart(env: Record<string, string | undefined>, deps: StartDeps): Promise<string | null> {
   const dir = dataDir(env);
-  const port = portFromEnv(env);
-  const url = boardUrl(port);
+  let port = knownPort(env, dir);
   try {
     writeWantedVersion(dir, deps.version, deps.root);
     markCaptureStart(dir, Date.now());
@@ -312,10 +336,13 @@ export async function onSessionStart(env: Record<string, string | undefined>, de
       return fallback;
     }
   };
-  const firstRun = quietly('read the shown address', () => shownAddress(dir), null) !== url;
+  const shown = quietly('read the shown address', () => shownAddress(dir), null);
+  // The address was never shown, or the board is no longer expected where the user was told.
+  const firstRun = shown !== boardUrl(port);
 
   let state = await deps.probe(port, deps.version);
-  if (state === 'foreign')
+  // Another program matters only on a port the user fixed; otherwise the server takes the next free one.
+  if (state === 'foreign' && explicitPort(env) !== null)
     return `${APP_TITLE}: port ${port} is used by another program, so the dashboard was not started. Set AGENT_INBOX_PORT to a free port.`;
   if (state !== 'current') {
     const now = Date.now();
@@ -329,34 +356,53 @@ export async function onSessionStart(env: Record<string, string | undefined>, de
     const began = performance.now();
     for (let waited = 0; waited < FIRST_RUN_WAIT_MS && performance.now() - began < FIRST_RUN_WAIT_MS; waited += STARTER_STEP_MS) {
       await deps.sleep(STARTER_STEP_MS);
+      port = knownPort(env, dir); // the server says which port it took
       state = await deps.probe(port, deps.version);
       if (state === 'current') break;
     }
     if (state !== 'current') return null;
   }
   quietly('clear the pending start', () => clearStartPending(dir), undefined);
-  if (!firstRun) return null;
+  const url = boardUrl(port);
+  if (shown === url) return null;
   quietly('record the shown address', () => markAddressShown(dir, url), undefined);
   return firstRunLine(url);
 }
 
-/** The detached starter: wait for a stale server to leave, then start the current one. */
+/**
+ * The detached starter: wait for a stale server to leave, then start the current one.
+ *
+ *   on any port the server may choose:   a current server of ours  -> done, nothing to start
+ *                                        an older server of ours   -> wait for it to leave
+ *   on the port the user fixed:          another program           -> done, never touch it
+ *   otherwise                                                      -> start the server; it picks its port
+ */
 export async function runStarter(env: Record<string, string | undefined>, deps: StartDeps): Promise<ServerState | 'started'> {
   const dir = dataDir(env);
-  const port = portFromEnv(env);
-  let state: ServerState = 'silent';
+  const ports = candidatePorts(env);
+  const fixed = explicitPort(env) !== null;
+  let leaving = ports[0];
   for (let waited = 0; waited <= STARTER_WAIT_MS; waited += STARTER_STEP_MS) {
-    state = await deps.probe(port, deps.version);
-    if (state === 'current' || state === 'foreign') return state;
-    if (state === 'silent') {
+    let stale = false;
+    for (const port of ports) {
+      const state = await deps.probe(port, deps.version);
+      if (state === 'current') return state;
+      if (state === 'foreign' && fixed) return state;
+      if (state === 'stale') {
+        stale = true;
+        leaving = port;
+        break; // nothing may start while an older server of ours is still up
+      }
+    }
+    if (!stale) {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       deps.launch([path.join(deps.root, 'server.ts')], path.join(dir, 'server.log'));
       return 'started';
     }
     await deps.sleep(STARTER_STEP_MS);
   }
-  logError(dir, `an older agent-inbox server did not leave port ${port} within ${STARTER_WAIT_MS} ms`);
-  return state;
+  logError(dir, `an older agent-inbox server did not leave port ${leaving} within ${STARTER_WAIT_MS} ms`);
+  return 'stale';
 }
 
 if (import.meta.main) {
