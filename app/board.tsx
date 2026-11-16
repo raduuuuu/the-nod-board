@@ -227,13 +227,13 @@ export function RecentSessions(props: { judgment: JudgmentPayload | null; timeZo
                 <td class="taken">
                   <div>
                     <Marks marks={s.marks} />
-                    <span>
+                    <span class="tally">
                       {count(s.agreed)} of {count(s.answered)}
-                      {s.answered > s.marks.length ? ` (latest ${count(s.marks.length)} shown)` : ''}
+                      {s.answered > s.marks.length ? <small> (latest {count(s.marks.length)} shown)</small> : null}
                     </span>
                   </div>
                 </td>
-                <td>{s.timed ? duration(s.medianMs) : DASH}</td>
+                <td class="time">{s.timed ? duration(s.medianMs) : DASH}</td>
               </tr>
             ))}
           </tbody>

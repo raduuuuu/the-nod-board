@@ -84,6 +84,9 @@ svg .dot{fill:var(--text)}
 .tbar{width:56px;height:12px;vertical-align:middle;margin-right:var(--s2)}
 .taken div{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s1) var(--s3)}
 .marks{height:auto;flex:none}
+/* the count sits under the squares, and beside them from 1280px, where every row has the room */
+.tally{flex:1 1 100%}
+.tally small{font-size:var(--label);color:var(--muted)}
 .marks[data-cols]{width:298px;max-width:100%}
 .split tbody th{white-space:nowrap}
 .list th:has(+ .taken){white-space:nowrap}
@@ -138,7 +141,7 @@ summary{cursor:pointer;font-size:var(--label);color:var(--muted);min-height:44px
 /* Tables */
 table{border-collapse:collapse;width:100%}
 th,td{text-align:left;font-weight:400;padding:var(--s2) var(--s4) var(--s2) 0;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}
-thead th{font-size:var(--label);color:var(--muted)}
+thead th{font-size:var(--label);color:var(--muted);white-space:nowrap}
 .num{text-align:right;white-space:nowrap;padding-right:0}
 td.when{white-space:nowrap;color:var(--muted)}
 /* a project's name and the kind of answer keep a line of their own; only a longer name wraps */
@@ -163,6 +166,8 @@ footer dd{display:inline;margin:0;color:var(--text)}
 @media (min-width:1280px){
   .band{grid-template-columns:minmax(0,1fr) minmax(280px,380px)}
   .splits{display:grid;grid-template-columns:1fr 1fr;gap:0 var(--s8);align-items:start}
+  .tally{flex:1 1 9ch}
+  .tally small{display:block}
 }
 /* under 640px: each table row becomes a two-line block */
 @media (max-width:639px){
