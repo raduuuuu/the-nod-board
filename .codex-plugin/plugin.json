@@ -1,6 +1,6 @@
 {
   "name": "nod-board",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "description": "The Nod Board for Codex: records, on this machine only, how often you take the recommended option when Codex asks you a question. The board itself is the Claude Code plugin of the same name.",
   "author": {
     "name": "Radu Diaconescu"
