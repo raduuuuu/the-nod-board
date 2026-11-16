@@ -100,19 +100,17 @@ function Command(props: { text: string }) {
 }
 
 function sessionLabel(s: SessionPayload, now: number): string {
-  const stale = s.display === 'STALE' ? ' (no event for 12 h+)' : '';
-  if (s.state === 'WAITING') return `waiting ${lasting(now - s.since)}${stale}`;
-  if (s.state === 'PERMISSION_ASKED') return `permission asked ${ago(now - s.since)}, may be approved${stale}`;
+  if (s.state === 'WAITING') return `waiting ${lasting(now - s.since)}`;
+  if (s.state === 'PERMISSION_ASKED') return `permission asked ${ago(now - s.since)}, may be approved`;
   return `finished ${ago(now - s.since)}`;
 }
 
 export function NeedsYou(props: { inbox: InboxPayload | null; now: number }) {
   const inbox = props.inbox;
-  const stale = inbox?.stale ?? [];
   const groups: [string, SessionPayload[]][] = inbox
     ? [
-        ['Waiting on you', [...inbox.waiting, ...stale.filter((s) => s.state === 'WAITING')]],
-        ['Permission asked', [...inbox.permission, ...stale.filter((s) => s.state === 'PERMISSION_ASKED')]],
+        ['Waiting on you', inbox.waiting],
+        ['Permission asked', inbox.permission],
         ['Done, unread', inbox.done_unread],
       ]
     : [];
@@ -129,7 +127,7 @@ export function NeedsYou(props: { inbox: InboxPayload | null; now: number }) {
             <h3>{title}</h3>
             <ul>
               {list.map((s) => (
-                <li class={s.display === 'STALE' ? 'stale' : ''}>
+                <li>
                   <span class="project">{s.project}</span> <span class="muted">{sessionLabel(s, props.now)}</span>
                   {s.message ? <div class="message">{s.message}</div> : null}
                   <Command text={`claude --resume ${s.session_id}`} />

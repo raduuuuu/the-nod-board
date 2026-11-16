@@ -173,18 +173,16 @@ describe('needs you', () => {
           waiting: [session()],
           permission: [session({ session_id: 'sess-2', state: 'PERMISSION_ASKED', display: 'PERMISSION_ASKED', since: NOW - 120_000, message: null })],
           done_unread: [session({ session_id: 'sess-3', state: 'DONE_UNREAD', display: 'DONE_UNREAD', since: NOW - 600_000, message: null })],
-          stale: [session({ session_id: 'sess-4', display: 'STALE', since: NOW - 13 * 3_600_000 })],
         })}
       />,
     );
     const t = text(html);
-    expect(t).toContain('Needs you (4)');
+    expect(t).toContain('Needs you (3)');
     expect(html).toContain('<h2 id="needs-h" class="accent">'); // the accent is only for things that need you
     expect(t).toContain('thing waiting for 4 min Claude is waiting for your input claude --resume sess-1');
     expect(t).toContain('permission asked 2 min ago, may be approved');
     expect(t).toContain('finished 10 min ago');
-    expect(t).toContain('waiting for 13 h (no event for 12 h+)');
-    expect(html).toContain('<li class="stale">');
+    expect(t).not.toContain('no event for');
     expect(html).toContain('<code class="command" tabindex="0">claude --resume sess-2</code>');
     expect(html.indexOf('Waiting on you')).toBeLessThan(html.indexOf('Permission asked'));
     expect(html.indexOf('Permission asked')).toBeLessThan(html.indexOf('Done, unread'));

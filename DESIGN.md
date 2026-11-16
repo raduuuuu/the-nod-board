@@ -62,7 +62,8 @@ No sideways page scrolling at any width.
 ## Headline
 The acceptance number is the only 40px value. Under it, in this order: the outcome bar, one bar
 for every question to scale (took, chose otherwise, dismissed, unanswered, unreadable, excluded)
-with a key that gives each count and lists only what exists; the last 7 days as one 20px line,
+with a key that gives each count and lists only what exists (excluded is a dotted grey outline, so it
+shows in dark mode too); the last 7 days as one 20px line,
 "Last 7 days: 91% (169 of 186)", or "too few" with the count under 5; then the framing sentence. The plain-text line closes the block.
 
 Beside the number from 1280px, under it below: "How fast you answer", a histogram of answer

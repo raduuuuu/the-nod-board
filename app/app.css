@@ -34,7 +34,6 @@ ul{list-style:none;margin:0;padding:0}
 /* Needs you */
 .needs h2{margin-top:0}
 .needs li{padding:var(--s2) 0;border-bottom:1px solid var(--line);overflow-wrap:anywhere}
-.needs li.stale{color:var(--muted)}
 .needs .project{font-weight:600}
 .needs .message{margin:var(--s1) 0}
 .command{display:block;font:400 var(--label)/1.5 var(--mono);user-select:all;overflow-wrap:anywhere;margin-top:var(--s1);padding:var(--s2) 0;min-height:44px}
@@ -75,7 +74,7 @@ svg .dot{fill:var(--text)}
 .seg.dismissed{fill:var(--muted);stroke:var(--muted)}
 .seg.unanswered{fill:var(--line);stroke:var(--muted)}
 .seg.unreadable{fill:var(--line);stroke:var(--muted);stroke-dasharray:2 2}
-.seg.excluded{fill:var(--line);stroke:var(--line)}
+.seg.excluded{fill:var(--page);stroke:var(--muted);stroke-dasharray:1 2}
 .keys{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s4);margin-top:var(--s2);font-size:var(--label)}
 .keys li{display:flex;align-items:center;gap:var(--s1)}
 .key{width:10px;height:10px;flex:none}
