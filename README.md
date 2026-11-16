@@ -68,6 +68,17 @@ dashboard, checked against a second build of the same commit.
 Updates are not automatic for third-party marketplaces unless you turn that on in `/plugin`.
 To update by hand: `claude plugin update nod-board@nod-board`.
 
+The board does not look for new versions unless you ask it to. To be told when one exists,
+write `~/.agent-inbox/settings.json`:
+
+```json
+{ "check_for_updates": true }
+```
+
+The footer then says "Version 0.3.8 is available" with the update command, and
+`/nod-board:status` says the check is on. Delete the file, or set the value to `false`, to turn
+it off again; no restart is needed. What the check does is under "What is stored".
+
 ## Codex CLI (experimental)
 
 The board can also count the questions Codex asks you. Codex has its own question tool
@@ -161,10 +172,19 @@ Transcripts are read only when you run the import, in memory; the hook never ope
 server binds 127.0.0.1, rejects any Host header other than `127.0.0.1:<port>` or
 `localhost:<port>` for the port it took, and has no route that changes anything.
 
+The board makes no outside request, with one exception that is off until you turn it on: the
+update check (see "Install"). When it is on, the server asks GitHub for one fixed file, the
+plugin's manifest on the `release` branch
+(`raw.githubusercontent.com/raduuuuu/the-nod-board/release/.claude-plugin/plugin.json`), at most
+once a day and only while the board is open in a browser. The request has no query and no body
+and names no version, so it carries nothing from your sessions or your machine; as with any
+request, GitHub sees your IP address and the time. The answer is kept in memory and nothing is
+written. The page itself still talks to nothing but the local server.
+
 You can read both files with any text tool; that is deliberate.
 
-`project-aliases.json` in the same folder is yours: the board reads it and never writes it (see
-"How questions are counted").
+`project-aliases.json` and `settings.json` in the same folder are yours: the board reads them
+and never writes them (see "How questions are counted" and "Install").
 
 ## How questions are counted
 

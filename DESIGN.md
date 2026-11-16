@@ -108,6 +108,10 @@ never shown without its count; under 5 answers it reads "too few". Counts that a
 not listed. A count of hook errors says when the latest one happened ("1, last Nov 15, 20:47"),
 since nothing clears it and an old error should read as old.
 
+When the user has turned the update check on and a newer release exists, capture health gains
+one line under its values, in the text color: "Version 0.3.8 is available. To update:" and the
+command. Otherwise there is no trace of the check on the page.
+
 ## Trend
 A dot per week for the share, a bar beneath for the number of answers. Weeks under 5 answers
 show the bar only, drawn as an outline. Dots are joined only between adjacent weeks that both qualify. The same

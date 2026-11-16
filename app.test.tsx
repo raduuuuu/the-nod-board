@@ -504,6 +504,12 @@ describe('capture health', () => {
     expect(untimed).toContain('hook errors 2 past sessions');
   });
 
+  test('a newer version is named with the command that installs it, and only when the server reports one', () => {
+    const withUpdate = health({ judgment: { ...judgment(), latest_version: '0.1.1' } });
+    expect(withUpdate).toContain('version 0.1.0 Version 0.1.1 is available. To update: claude plugin update nod-board@nod-board updated just now');
+    expect(health()).not.toContain('is available');
+  });
+
   test('history not imported yet, and no event yet', () => {
     const t = health({ inbox: inbox({ health: { ...inbox().health, last_event_ts: null } }), judgment: judgment({ capture: { unreadable_lines: 0, sources: { hook: true, import: false } } }) });
     expect(t).toContain('last event none yet');

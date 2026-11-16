@@ -9,7 +9,8 @@
  *   GET /health          {app, version, stale, ok, last_event_ts, sources}; ok means the data
  *                        directory is readable (no events yet is ok)
  *
- * Bound to 127.0.0.1. Every request whose Host header is not exactly 127.0.0.1:<port> or
+ * Bound to 127.0.0.1. It makes no outside request, with one exception the user has to turn on:
+ * the update check (updates.ts). Every request whose Host header is not exactly 127.0.0.1:<port> or
  * localhost:<port> gets 403 (DNS-rebinding guard). GET and HEAD only: there is no route that
  * changes anything. The page may load scripts, styles, fonts and data from this server only
  * (CSP), with no inline script; all session text is rendered as text by the app.
@@ -39,6 +40,7 @@ import {
 } from './inbox';
 import { FAST_ANSWER_MS, MIN_N, TIME_BUCKET_MS } from './judgment';
 import { boardData } from './outcomes';
+import { UpdateCheck } from './updates';
 import { INSTANCE_HEADER, STARTER_STEP_MS, STARTER_WAIT_MS, probeServer, type ServerState } from './hook';
 
 export { DEFAULT_PORT };
@@ -86,12 +88,14 @@ export function inboxJson(m: InboxModel) {
   };
 }
 
-export function judgmentJson(inbox: Inbox, version: string, now: number) {
+export function judgmentJson(inbox: Inbox, version: string, now: number, latest: string | null = null) {
   const movedOn = inbox.movedOn();
   const board = boardData(inbox.cfg.dir, { now, movedOnAt: (session) => movedOn.get(session) ?? null });
   return {
     now,
     version,
+    /** Present only when the user turned the update check on and a newer release exists. */
+    ...(latest === null ? {} : { latest_version: latest }),
     /** Below this many answered questions a share is not shown ("too few"). */
     min_n: MIN_N,
     /** An answer faster than this counts as fast (timing.fast). */
@@ -161,12 +165,15 @@ export interface ServerOptions {
   onStale?: () => void;
   /** Where the built app lives. */
   distDir?: string;
+  /** The opt-in update check; tests pass one with a fetch of their own. */
+  updates?: UpdateCheck;
 }
 
 export function makeHandler(inbox: Inbox, getPort: () => number, opts: ServerOptions = {}) {
   const version = opts.version ?? pluginVersion();
   const distDir = opts.distDir ?? DIST_DIR;
   const instance = instanceId(inbox.cfg.dir);
+  const updates = opts.updates ?? new UpdateCheck(inbox.cfg.dir, version);
   let staleReported = false;
   return async (req: Request): Promise<Response> => {
     const plain = (status: number, body: string) =>
@@ -178,7 +185,10 @@ export function makeHandler(inbox: Inbox, getPort: () => number, opts: ServerOpt
     const url = new URL(req.url);
     try {
       if (url.pathname === '/api/inbox') return json(inboxJson(await inbox.model()));
-      if (url.pathname === '/api/judgment') return json(judgmentJson(inbox, version, Date.now()));
+      if (url.pathname === '/api/judgment') {
+        const now = Date.now();
+        return json(judgmentJson(inbox, version, now, updates.latest(now)));
+      }
       if (url.pathname === '/health') {
         // Bounded path: file reads only (the hook's probe polls this).
         const hl = inbox.health();

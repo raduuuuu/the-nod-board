@@ -154,6 +154,7 @@ footer dl{display:flex;flex-wrap:wrap;gap:var(--s1) var(--s6);margin:0 0 var(--s
 footer dt{display:inline}
 footer dt::after{content:": "}
 footer dd{display:inline;margin:0;color:var(--text)}
+.update{margin:0 0 var(--s2);color:var(--text)}
 .fresh{min-height:1.5em;margin:0}
 
 /* 1024px and up: two zones */

@@ -643,6 +643,19 @@ describe('/nod-board:open and /nod-board:status', () => {
     expect(lines).toContain('hook errors: 2, last 2026-11-14 09:30 UTC');
   });
 
+  test('status mentions the update check only when a settings file turns it on or cannot be read', async () => {
+    const env = tmpEnv();
+    fs.mkdirSync(env.AGENT_INBOX_DIR, { recursive: true });
+    const about = async () => (await statusLines(env, deps(['current']).d, io().io)).filter((l) => l.startsWith('update check'));
+    expect(await about()).toEqual([]);
+    fs.writeFileSync(path.join(env.AGENT_INBOX_DIR, 'settings.json'), '{"check_for_updates": false}');
+    expect(await about()).toEqual([]);
+    fs.writeFileSync(path.join(env.AGENT_INBOX_DIR, 'settings.json'), '{"check_for_updates": true}');
+    expect(await about()).toEqual(['update check: on, once a day while the board is open; a newer version is named on the board']);
+    fs.writeFileSync(path.join(env.AGENT_INBOX_DIR, 'settings.json'), '{oops');
+    expect((await about())[0]).toStartWith('update check: off; ');
+  });
+
   test('status with nothing running and nothing stored: says how to start it and what to run', async () => {
     const lines = await statusLines(tmpEnv(), deps(['silent']).d, io().io);
     expect(lines[1]).toBe('running: no. Start it with /nod-board:open');

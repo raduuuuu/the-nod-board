@@ -47,6 +47,8 @@ export interface BoardProps {
 const DASH = '–';
 const TOO_FEW = 'too few';
 export const IMPORT_COMMAND = '/nod-board:import';
+/** Same text as updates.ts UPDATE_COMMAND; the app does not import server modules. */
+export const UPDATE_COMMAND = 'claude plugin update nod-board@nod-board';
 /** Rows shown at once in the two lists; the overrides list offers the rest on request. */
 export const LIST_ROWS = 10;
 /** The row for questions whose skill, model or agent no source captured (attrs.ts UNKNOWN). It is never folded. */
@@ -395,6 +397,13 @@ export function CaptureHealth(props: BoardProps) {
           </div>
         ))}
       </dl>
+      {/* Present only when the user turned the update check on and a newer release exists. */}
+      {j?.latest_version ? (
+        <p class="update">
+          Version {j.latest_version} is available. To update:
+          <Command text={UPDATE_COMMAND} />
+        </p>
+      ) : null}
       {/* Only a lost connection is announced; routine refreshes stay silent for screen readers. */}
       <p class="fresh" role={link.state === 'unreachable' ? 'status' : undefined}>
         {fresh}

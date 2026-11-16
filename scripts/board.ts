@@ -18,6 +18,7 @@ import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type S
 import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, lastHookErrorTs, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
 import { ALIASES_FILE, readAliases } from '../project';
+import { SETTINGS_FILE, updateSetting } from '../updates';
 
 type Env = Record<string, string | undefined>;
 
@@ -134,6 +135,10 @@ export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promi
   const aliases = readAliases(dir);
   if (aliases.state === 'ok') lines.push(`project aliases: ${aliases.names.size.toLocaleString('en-US')}`);
   if (aliases.state === 'unreadable') lines.push(`project aliases: ${path.join(dir, ALIASES_FILE)} could not be read; it must be one JSON object of "old name": "new name"`);
+  // Said only when the user wrote a settings file that turns it on, or one that cannot be read.
+  const updates = updateSetting(dir);
+  if (updates === 'on') lines.push('update check: on, once a day while the board is open; a newer version is named on the board');
+  if (updates === 'unreadable') lines.push(`update check: off; ${path.join(dir, SETTINGS_FILE)} could not be read; it must be one JSON object, for example {"check_for_updates": true}`);
   return lines;
 }
 
