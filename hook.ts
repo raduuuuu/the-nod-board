@@ -47,6 +47,7 @@ import {
 } from './inbox';
 import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
 import { noteStart, projectAt } from './project';
+import { ASK_THROUGH_QUESTION_TOOL, sessionStartOutput, settingState } from './updates';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
 export const QUESTION_TOOL = 'AskUserQuestion';
@@ -446,13 +447,16 @@ if (import.meta.main) {
   }
   const payload = handle(raw, process.env, Date.now());
   if (payload?.event === 'SessionStart') {
+    let line: string | null = null;
     try {
-      const line = await onSessionStart(process.env, realDeps());
-      // SessionStart stdout would be added to the model's context; a systemMessage is shown to the user instead.
-      if (line) process.stdout.write(JSON.stringify({ systemMessage: line }) + '\n');
+      line = await onSessionStart(process.env, realDeps());
     } catch (err) {
       logError(dataDir(process.env), `session start failed: ${(err as Error).name}`);
     }
+    // A systemMessage is shown to the user and stays out of the model's context. The one thing
+    // added to that context is a fixed sentence, and only when the user turned it on (updates.ts).
+    const out = sessionStartOutput(line, settingState(dataDir(process.env), ASK_THROUGH_QUESTION_TOOL) === 'on');
+    if (out) process.stdout.write(out + '\n');
   }
   process.exit(0);
 }

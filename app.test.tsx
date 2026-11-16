@@ -218,6 +218,7 @@ describe('the acceptance number', () => {
     expect(t).toContain('20% under 15 s (274 of 1,362) · median 42 s');
     expect((html.match(/class="number"/g) ?? []).length).toBe(1); // one anchor
     expect(t).toContain('A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.');
+    expect(t).toContain('Only choices asked through the question tool are counted; a recommendation made in plain text is not seen.');
     expect(t).not.toContain('unanswered');
     expect(t).not.toContain('unreadable');
     expect(html).not.toContain('banner');

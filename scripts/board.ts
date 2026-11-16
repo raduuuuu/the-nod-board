@@ -18,7 +18,7 @@ import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type S
 import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, lastHookErrorTs, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
 import { ALIASES_FILE, readAliases } from '../project';
-import { SETTINGS_FILE, updateSetting } from '../updates';
+import { ASK_THROUGH_QUESTION_TOOL, SETTINGS_FILE, settingState, updateSetting } from '../updates';
 
 type Env = Record<string, string | undefined>;
 
@@ -139,6 +139,7 @@ export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promi
   const updates = updateSetting(dir);
   if (updates === 'on') lines.push('update check: on, once a day while the board is open; a newer version is named on the board');
   if (updates === 'unreadable') lines.push(`update check: off; ${path.join(dir, SETTINGS_FILE)} could not be read; it must be one JSON object, for example {"check_for_updates": true}`);
+  if (settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on') lines.push('question tool: new sessions ask the agent to put choices through it');
   return lines;
 }
 

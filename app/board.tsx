@@ -195,6 +195,7 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
             <p class="muted framing">
               A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.
             </p>
+            <p class="muted framing">Only choices asked through the question tool are counted; a recommendation made in plain text is not seen.</p>
           </div>
           <Histogram buckets={j.timeBuckets} bucketMs={j.time_bucket_ms} fastMs={j.fast_ms} medianMs={t.medianMs} n={t.n} fast={t.fast} minN={j.min_n} />
         </div>

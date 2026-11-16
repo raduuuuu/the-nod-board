@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Inbox } from './inbox';
 import { makeHandler } from './server';
+import { ASK_THROUGH_QUESTION_TOOL, QUESTION_TOOL_NUDGE, sessionStartOutput, settingState } from './updates';
 import { CHECK_EVERY_MS, RELEASE_MANIFEST_URL, RETRY_AFTER_MS, SETTINGS_FILE, UpdateCheck, isNewer, manifestVersion, updateSetting } from './updates';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nod-updates-'));
@@ -169,5 +170,30 @@ describe('/api/judgment', () => {
     const getOff = await judgment(offDir, new UpdateCheck(offDir, '0.3.6', off.fetchText));
     expect('latest_version' in (await getOff())).toBe(false);
     expect(off.asked).toEqual([]);
+  });
+});
+
+describe('asking the agent to use the question tool', () => {
+  test('its own setting, off until the literal true, and independent of the update check', () => {
+    expect(settingState(dataDir(), ASK_THROUGH_QUESTION_TOOL)).toBe('off');
+    expect(settingState(dataDir(ON), ASK_THROUGH_QUESTION_TOOL)).toBe('off');
+    expect(settingState(dataDir('{"ask_through_question_tool": "yes"}'), ASK_THROUGH_QUESTION_TOOL)).toBe('off');
+    expect(settingState(dataDir('{broken'), ASK_THROUGH_QUESTION_TOOL)).toBe('unreadable');
+    const dir = dataDir('{"ask_through_question_tool": true}');
+    expect(settingState(dir, ASK_THROUGH_QUESTION_TOOL)).toBe('on');
+    expect(updateSetting(dir)).toBe('off');
+  });
+
+  test('off: session start prints what it printed before, a line for the user or nothing', () => {
+    expect(sessionStartOutput(null, false)).toBeNull();
+    expect(JSON.parse(sessionStartOutput('The board is running', false)!)).toEqual({ systemMessage: 'The board is running' });
+  });
+
+  test('on: one fixed sentence goes to the agent, beside the line for the user when there is one', () => {
+    const context = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: QUESTION_TOOL_NUDGE } };
+    expect(JSON.parse(sessionStartOutput(null, true)!)).toEqual(context);
+    expect(JSON.parse(sessionStartOutput('The board is running', true)!)).toEqual({ systemMessage: 'The board is running', ...context });
+    expect(QUESTION_TOOL_NUDGE).toContain('AskUserQuestion');
+    expect(QUESTION_TOOL_NUDGE).toContain('(Recommended)');
   });
 });

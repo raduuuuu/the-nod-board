@@ -1,5 +1,6 @@
 /**
- * updates.ts: the one outside request The Nod Board can make, and only when the user asks for it.
+ * updates.ts: what a user can turn on in settings.json. Chiefly the one outside request The Nod
+ * Board can make, the update check; also the sentence that asks the agent to use the question tool.
  *
  * Off unless <data dir>/settings.json says {"check_for_updates": true}. That file is the user's:
  * the board reads it and never writes it. When it is on, the server (never the page) fetches one
@@ -28,10 +29,14 @@ export const CHECK_TIMEOUT_MS = 5_000;
 const MANIFEST_MAX = 16_384;
 const VERSION = /^(\d{1,6})\.(\d{1,6})\.(\d{1,6})$/;
 
-export type UpdateSetting = 'on' | 'off' | 'unreadable';
+export type Setting = 'on' | 'off' | 'unreadable';
+export type UpdateSetting = Setting;
+/** The settings a user can turn on. Each is off until the file gives it the literal true. */
+export const CHECK_FOR_UPDATES = 'check_for_updates';
+export const ASK_THROUGH_QUESTION_TOOL = 'ask_through_question_tool';
 
-/** Only the literal true turns the check on. A missing file is off; a broken one is off and said so. */
-export function updateSetting(dir: string): UpdateSetting {
+/** Only the literal true turns a setting on. A missing file is off; a broken one is off and said so. */
+export function settingState(dir: string, key: string): Setting {
   let text: string;
   try {
     text = fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8');
@@ -41,10 +46,30 @@ export function updateSetting(dir: string): UpdateSetting {
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return 'unreadable';
-    return (parsed as Record<string, unknown>).check_for_updates === true ? 'on' : 'off';
+    return (parsed as Record<string, unknown>)[key] === true ? 'on' : 'off';
   } catch {
     return 'unreadable';
   }
+}
+
+export const updateSetting = (dir: string): Setting => settingState(dir, CHECK_FOR_UPDATES);
+
+/**
+ * The one sentence the session-start hook adds to the agent's context, and only for a user who
+ * turned it on. The board counts a choice only when it is asked through the question tool; a
+ * recommendation made in plain text is never seen. This asks the agent to use the tool. It is
+ * fixed text: nothing from the user's data is in it.
+ */
+export const QUESTION_TOOL_NUDGE =
+  'The user has asked for this through The Nod Board: when you offer the user a choice between options and you recommend one of them, ask with the AskUserQuestion tool instead of plain text, and end the label of the option you recommend with "(Recommended)".';
+
+/** What the SessionStart hook prints: a line for the user, a sentence for the agent, both or nothing. */
+export function sessionStartOutput(line: string | null, nudge: boolean): string | null {
+  if (!line && !nudge) return null;
+  return JSON.stringify({
+    ...(line ? { systemMessage: line } : {}),
+    ...(nudge ? { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: QUESTION_TOOL_NUDGE } } : {}),
+  });
 }
 
 /** True when `candidate` is a later release than `current`. Anything that is not n.n.n is never newer. */

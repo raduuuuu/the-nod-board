@@ -79,6 +79,21 @@ The footer then says "Version 0.3.8 is available" with the update command, and
 `/nod-board:status` says the check is on. Delete the file, or set the value to `false`, to turn
 it off again; no restart is needed. What the check does is under "What is stored".
 
+The board counts a choice only when the agent asks it through the question tool. A
+recommendation the agent makes in plain text, which you then accept or reject in your reply, is
+not seen, so it is in neither the share nor the counts; the board says so under the number. To
+have more of your choices counted, add a second setting to the same file:
+
+```json
+{ "ask_through_question_tool": true }
+```
+
+Each new Claude Code session then starts with one fixed sentence in the agent's context, asking
+it to put a choice that has a recommendation through the question tool and to mark the option
+it recommends. This is the only thing the plugin ever adds to what the agent reads, it is off
+until you turn it on, and it is a request: the agent may still decide in plain text. It does
+not apply to Codex. `/nod-board:status` says when it is on.
+
 ## Codex CLI (experimental)
 
 The board can also count the questions Codex asks you. Codex has its own question tool

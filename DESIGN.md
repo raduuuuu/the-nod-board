@@ -153,3 +153,5 @@ Refreshes never move focus; only "server not reachable" is announced.
 Utility language: "Needs you", "took the recommendation", "Where you overrode", "Capture health".
 Under the number, always: "A high share can mean good recommendations or quick clicking; the
 answer time beside it is the clue."
+After it, always, as its own line: "Only choices asked through the question tool are counted; a
+recommendation made in plain text is not seen."
