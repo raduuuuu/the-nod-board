@@ -73,12 +73,14 @@ const cases: Case[] = [
   { name: 'DONE_UNREAD kept just under 12h', events: [ev('Stop', T0)], now: T0 + 12 * HOUR - MIN, display: 'DONE_UNREAD' },
   { name: 'SessionEnd → hidden', events: [idle(T0), ev('SessionEnd', T0 + MIN)], state: 'ENDED', display: 'HIDDEN' },
   { name: 'event after SessionEnd starts a new lifecycle', events: [ev('SessionEnd', T0), idle(T0 + MIN)], display: 'WAITING' },
-  { name: 'WAITING 12h without events → STALE', events: [idle(T0)], now: T0 + 12 * HOUR + 1, state: 'WAITING', display: 'STALE' },
-  { name: 'PERMISSION_ASKED 12h without events → STALE', events: [perm(T0)], now: T0 + 13 * HOUR, state: 'PERMISSION_ASKED', display: 'STALE' },
-  { name: 'WAITING just under 7 days without events → still STALE', events: [idle(T0)], now: T0 + 7 * 24 * HOUR - 1, state: 'WAITING', display: 'STALE' },
+  { name: 'WAITING 12h without events → hidden', events: [idle(T0)], now: T0 + 12 * HOUR + 1, state: 'WAITING', display: 'HIDDEN' },
+  { name: 'WAITING just under 12h without events → still shown', events: [idle(T0)], now: T0 + 12 * HOUR, state: 'WAITING', display: 'WAITING' },
+  { name: 'PERMISSION_ASKED 12h without events → hidden', events: [perm(T0)], now: T0 + 13 * HOUR, state: 'PERMISSION_ASKED', display: 'HIDDEN' },
+  { name: 'WAITING just under 7 days without events → hidden', events: [idle(T0)], now: T0 + 7 * 24 * HOUR - 1, state: 'WAITING', display: 'HIDDEN' },
   { name: 'WAITING 7 days without events → hidden', events: [idle(T0)], now: T0 + 7 * 24 * HOUR + 1, state: 'WAITING', display: 'HIDDEN' },
   { name: 'PERMISSION_ASKED 7 days without events → hidden', events: [perm(T0)], now: T0 + 8 * 24 * HOUR, state: 'PERMISSION_ASKED', display: 'HIDDEN' },
-  { name: 'informational event keeps an old ask visible', events: [idle(T0), ev('Notification', T0 + 6 * 24 * HOUR, { notification_type: 'auth_success' })], now: T0 + 8 * 24 * HOUR, state: 'WAITING', display: 'STALE' },
+  { name: 'informational event keeps an old ask visible', events: [idle(T0), ev('Notification', T0 + 6 * 24 * HOUR, { notification_type: 'auth_success' })], now: T0 + 6 * 24 * HOUR + 11 * HOUR, state: 'WAITING', display: 'WAITING' },
+  { name: '...until that event is 12h old too', events: [idle(T0), ev('Notification', T0 + 6 * 24 * HOUR, { notification_type: 'auth_success' })], now: T0 + 8 * 24 * HOUR, state: 'WAITING', display: 'HIDDEN' },
   { name: 'out-of-order: prompt line written before an older Notification', events: [ev('UserPromptSubmit', T0 + MIN), idle(T0)], state: 'RUNNING', display: 'HIDDEN' },
   { name: 'out-of-order: Stop line before older prompt', events: [ev('Stop', T0 + 2 * MIN), ev('UserPromptSubmit', T0)], display: 'DONE_UNREAD' },
   { name: 'idle_prompt after Stop → WAITING', events: [ev('Stop', T0), idle(T0 + MIN)], display: 'WAITING' },
@@ -179,7 +181,7 @@ describe('compaction (R7)', () => {
     const m = fold(readEventLog(dir).events, T0 + HOUR);
     expect(m.get('inflight')!.display).toBe('PERMISSION_ASKED');
     expect(m.get('fresh')!.display).toBe('WAITING');
-    expect(m.get('dormant')!.display).toBe('STALE');
+    expect(m.get('dormant')!.display).toBe('HIDDEN');
     expect(m.get('dormant')!.state).toBe('WAITING');
     // Snapshot holds at most two events per session (state event + newest), not the filler.
     const snap = parseLines(fs.readFileSync(path.join(dir, 'state-snapshot.jsonl'), 'utf8')).events;
@@ -211,7 +213,7 @@ describe('compaction (R7)', () => {
     const m = fold(readEventLog(dir).events, T0 + MIN);
     expect(m.has('ended')).toBe(false);
     expect(m.get('done')!.display).toBe('DONE_UNREAD');
-    expect(m.get('dormant')!.display).toBe('STALE');
+    expect(m.get('dormant')!.display).toBe('HIDDEN');
     expect(m.has('old')).toBe(false);
   });
 
@@ -229,7 +231,7 @@ describe('compaction (R7)', () => {
     const view = (evs: InboxEvent[], now: number) =>
       [...fold(evs, now).values()].map((s) => `${s.session_id}:${s.display}:${s.last_ts}`).sort();
     const before = view(events, T0);
-    expect(before).toEqual([`fresh:WAITING:${T0 - 3 * HOUR}`, `recent:WAITING:${T0 - HOUR}`, `touched:STALE:${T0 - DAY}`]);
+    expect(before).toEqual([`fresh:WAITING:${T0 - 3 * HOUR}`, `recent:WAITING:${T0 - HOUR}`, `touched:HIDDEN:${T0 - DAY}`]);
     fs.writeFileSync(rot, jsonl(events));
     foldIntoSnapshot(dir, rot, T0);
     fs.rmSync(rot);

@@ -4,7 +4,9 @@ A local dashboard for Claude Code sessions. It shows what needs you right now, a
 you nod along with the agent's recommendation. Everything stays on your machine.
 
 - **Needs you:** sessions waiting for input, waiting on a permission, or finished and unread,
-  each with the command that resumes it.
+  each with the command that resumes it. A session with no
+  event for 12 hours is taken off the list, since a session closed without an end event never
+  says so; it comes back at its next event.
 - **Recommendations taken:** of the questions where the agent marked exactly one option
   "(Recommended)" and you answered, the share where you picked that option. Under it: one bar
   showing where every question went, and the share for the last 7 days. Beside it: a histogram

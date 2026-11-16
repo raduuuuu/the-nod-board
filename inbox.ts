@@ -16,9 +16,12 @@
  *   UserPromptSubmit (any state)                     → RUNNING (clears DONE_UNREAD)
  *   Stop                                             → DONE_UNREAD
  *   SessionEnd                                       → ENDED (hidden; a later event starts a new lifecycle)
- *   WAITING/PERMISSION_ASKED with no event for 12h   → STALE (shown greyed)
- *   WAITING/PERMISSION_ASKED with no event for 7 days → hidden, pruned at compaction (a closed
- *                                                      session never says so when SessionEnd is not registered)
+ *   WAITING/PERMISSION_ASKED with no event for 12h   → hidden: a session closed without an end
+ *                                                      event never says so, and would otherwise sit
+ *                                                      on the page as waiting. A later event from it
+ *                                                      brings it back. (STALE, the greyed state this
+ *                                                      used to be, is no longer produced.)
+ *   WAITING/PERMISSION_ASKED with no event for 7 days → pruned at compaction
  *   DONE_UNREAD older than 12h                       → hidden (no page-view clearing, R9)
  * Events are ordered by ts (file order breaks ties), so out-of-order lines are tolerated.
  */
@@ -168,7 +171,9 @@ function displayOf(s: Session, now: number): DisplayState {
     case 'WAITING':
     case 'PERMISSION_ASKED':
       if (now - s.last_ts > SNAPSHOT_PRUNE_MS) return 'HIDDEN';
-      return now - s.last_ts > STALE_AFTER_MS ? 'STALE' : s.state;
+      // A session nobody has heard from for 12 hours is taken off the page: it was most likely
+      // closed without an end event. Its events stay, so a new prompt brings it back.
+      return now - s.last_ts > STALE_AFTER_MS ? 'HIDDEN' : s.state;
     case 'DONE_UNREAD':
       return now - s.since > DONE_UNREAD_TTL_MS ? 'HIDDEN' : 'DONE_UNREAD';
     default:
