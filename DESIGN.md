@@ -30,6 +30,7 @@ served locally. Figures are tabular everywhere.
 
 | Size | Use |
 |---|---|
+| 11px | text inside a chart: axis and spoke labels, nothing else |
 | 13px | labels, headings, footer, commands |
 | 16px | body |
 | 20px | the basis beside the number, and the last 7 days under it |
@@ -82,7 +83,8 @@ bold; a list is never shown as "Unassigned" when its file says what it is for.
 
 Recent sessions shows a square per answer, in order, 30 to a line: filled took the
 recommendation, hollow chose otherwise. The latest 60 are drawn; a longer session says so beside
-its count.
+its count. The count sits under the squares, and beside them from 1280px; under 640px the
+answer time follows on its own line, labelled ("answer time 24 s").
 
 A split table has four columns: name, share, answers, answer time. A share has a dot on an 80px
 track in front of it; the track ends at 100% and starts where the trend's share axis starts, or

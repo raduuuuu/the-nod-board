@@ -8,7 +8,7 @@
   --page:#fff;--text:#1a1a1a;--muted:#666;--line:#e3e3e3;--accent:#b4005a;
   --series1:#0b5fa5;--series2:#b85c00;--series3:#2f7d4f;--series4:#0f766e;
   --s1:4px;--s2:8px;--s3:12px;--s4:16px;--s6:24px;--s8:32px;--s12:48px;
-  --label:13px;--body:16px;--value:20px;--number:40px;
+  --chart:11px;--label:13px;--body:16px;--value:20px;--number:40px;
   --sans:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;
 }
 @media (prefers-color-scheme:dark){:root{--page:#121212;--text:#ececec;--muted:#9a9a9a;--line:#2c2c2c;--accent:#ff6fae;--series1:#6cb2ee;--series2:#f0a04b;--series3:#6fcf97;--series4:#4fd1c5}}
@@ -53,7 +53,7 @@ main h2:first-child,.acceptance h2{margin-top:0}
 .histogram p{margin-top:var(--s1)}
 
 /* Charts: ink and grey; geometry lives in the SVG, every color here */
-svg .axis{font:400 11px var(--sans);fill:var(--muted)}
+svg .axis{font:400 var(--chart) var(--sans);fill:var(--muted)}
 svg .axis.strong{fill:var(--text)}
 svg .rule{stroke:var(--line);stroke-width:1;fill:none}
 svg .rule.strong{stroke:var(--muted)}
@@ -116,7 +116,7 @@ svg .dot{fill:var(--text)}
 
 /* Trend */
 .trend svg{display:block;width:100%;height:auto}
-.trend .axis{font:400 11px var(--sans);fill:var(--muted)}
+.trend .axis{font:400 var(--chart) var(--sans);fill:var(--muted)}
 .trend .rule{stroke:var(--line);stroke-width:1}
 .trend .rule.strong{stroke:var(--muted)}
 .trend .link{stroke:var(--text);stroke-width:1.5}
