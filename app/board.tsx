@@ -260,9 +260,9 @@ function OverrideTable(props: { rows: Override[]; timeZone?: string; headHidden?
         {props.rows.map((o) => (
           <tr>
             <td class="when">{dayTime(o.ts, props.timeZone)}</td>
-            <td>{o.project}</td>
+            <td class="proj">{o.project}</td>
             <th scope="row">{o.title}</th>
-            <td>{o.typed ? 'typed' : 'other option'}</td>
+            <td class="kind">{o.typed ? 'typed' : 'other option'}</td>
           </tr>
         ))}
       </tbody>

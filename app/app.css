@@ -141,6 +141,8 @@ th,td{text-align:left;font-weight:400;padding:var(--s2) var(--s4) var(--s2) 0;bo
 thead th{font-size:var(--label);color:var(--muted)}
 .num{text-align:right;white-space:nowrap;padding-right:0}
 td.when{white-space:nowrap;color:var(--muted)}
+/* a project's name and the kind of answer keep a line of their own; only a longer name wraps */
+@media (min-width:640px){.list .proj{min-width:14ch}.list .kind{min-width:12ch}}
 .weeks{max-width:360px}
 
 /* Capture health */
