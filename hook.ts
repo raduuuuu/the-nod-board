@@ -16,7 +16,11 @@
  * two events arrive, and only question observations are written (codex.ts). No session event,
  * no attrs state and no server start: those belong to Claude Code sessions.
  *
- * Contract: always exit 0 and print nothing on stdout, so a session is never blocked or altered.
+ * Contract: always exit 0, so a session is never blocked. Nothing is printed on stdout, with two
+ * exceptions, both at SessionStart only: a line shown to the user (the address on first run, or
+ * that the dashboard did not start), and, only when the user turned it on in settings.json, one
+ * fixed sentence added to the agent's context (updates.ts QUESTION_TOOL_NUDGE). Without that
+ * setting nothing the agent reads is changed.
  * Problems append one line to <dir>/hook-errors.log. Files are 0600, the directory 0700.
  * `readHookPayload` is the only place that knows the payload shape (measured on Claude Code
  * 2.1.325: tool_response = {questions, answers, annotations}, answers keyed by question text;
