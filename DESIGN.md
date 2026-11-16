@@ -93,7 +93,8 @@ On a board with no counted questions, once at least 5 replies were checked, the 
 says why it is empty: "Your agent has asked nothing through the question tool. In the last 7 days
 about 9 of 140 replies ended with a recommendation in plain text, which the board cannot count."
 While the agent is not yet asked to use the tool, it adds "To have choices asked through the
-tool, add this to ~/.agent-inbox/settings.json:" and the setting as a command.
+tool, add this to ~/.agent-inbox/settings.json:" and the setting as a command. When the data
+directory was moved with AGENT_INBOX_DIR, the sentence names the settings file there.
 
 ## Lists and splits
 Recent sessions and Where you overrode show 10 rows. The overrides list offers the rest through

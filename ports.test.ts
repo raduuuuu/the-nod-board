@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { INSTANCE_HEADER, onSessionStart, probeServer, runStarter, firstRunLine, type ServerState, type StartDeps } from './hook';
+import { INSTANCE_HEADER, START_GRACE_MS, onSessionStart, probeServer, runStarter, firstRunLine, type ServerState, type StartDeps } from './hook';
 import {
   ADDRESS_FILE,
   APP_NAME,
@@ -16,8 +16,10 @@ import {
   instanceId,
   knownPort,
   markAddressShown,
+  markStartPending,
   boardUrl,
   readAddressPort,
+  startPendingSince,
   writeAddressPort,
   writeWantedVersion,
 } from './inbox';
@@ -229,6 +231,34 @@ describe('one server per data folder, with real servers', () => {
     expect(readAddressPort(dir)).toBe(a);
     expect((await healthOf(a))?.app).toBe(APP_NAME);
     expect(await healthOf(b)).toBeNull();
+  });
+
+  test('a server that comes up clears the pending-start mark, so the next update is not reported as a failed start', async () => {
+    // A session start launched this server and marked the start pending. No other session start
+    // ran before the plugin was updated, so nothing but the server could say the start worked.
+    const dir = tmp();
+    const [a] = freePorts(1);
+    markAddressShown(dir, boardUrl(a));
+    markStartPending(dir, Date.now() - START_GRACE_MS - 1_000);
+    const s = await serve({ version: '2.0.0', ports: [a], inbox: inboxIn(dir), compact: false, onLeave: () => {} });
+    stops.push(() => s?.stop());
+    expect(startPendingSince(dir)).toBeNull();
+    // After the update the hook wants a newer version: the running server is stale, not failed.
+    const launched: string[][] = [];
+    const updated: StartDeps = { root: '/plugin', version: '2.1.0', probe: (port, wanted) => probeServer(port, wanted, fetch, instanceId(dir)), launch: (args) => void launched.push(args), sleep: async () => {} };
+    expect(await onSessionStart({ HOME: path.dirname(dir), AGENT_INBOX_DIR: dir }, updated)).toBeNull();
+    expect(launched).toEqual([['/plugin/hook.ts', '--start-server']]);
+  });
+
+  test('a server that leaves because another one serves this data does not clear the mark', async () => {
+    const dir = tmp();
+    const [a, b] = freePorts(2);
+    const first = await serve({ version: '2.0.0', ports: [a, b], inbox: inboxIn(dir), compact: false, onLeave: () => {} });
+    stops.push(() => first?.stop());
+    const at = Date.now() - 1_000;
+    markStartPending(dir, at);
+    expect(await serve({ version: '2.0.0', ports: [a, b], inbox: inboxIn(dir), compact: false, onLeave: () => {} })).toBeNull();
+    expect(startPendingSince(dir)).toBe(at);
   });
 
   test('another program on the first port: the board takes the next one and records it', async () => {

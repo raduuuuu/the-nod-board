@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Inbox } from './inbox';
 import { makeHandler } from './server';
-import { ASK_THROUGH_QUESTION_TOOL, QUESTION_TOOL_NUDGE, sessionStartOutput, settingState } from './settings';
+import { ASK_THROUGH_QUESTION_TOOL, DEFAULT_SETTINGS_SHOWN, QUESTION_TOOL_NUDGE, sessionStartOutput, settingState, settingsFileShown } from './settings';
 import { CHECK_EVERY_MS, RELEASE_MANIFEST_URL, RETRY_AFTER_MS, SETTINGS_FILE, UpdateCheck, isNewer, manifestVersion, updateSetting } from './settings';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nod-updates-'));
@@ -45,6 +45,21 @@ describe('the setting', () => {
     expect(updateSetting(dataDir('{check'))).toBe('unreadable');
     expect(updateSetting(dataDir('[true]'))).toBe('unreadable');
     expect(updateSetting(dataDir('null'))).toBe('unreadable');
+  });
+});
+
+describe('the settings file as the user is told about it', () => {
+  test('the default data directory reads ~/.agent-inbox/settings.json', () => {
+    expect(settingsFileShown('/home/sam/.agent-inbox', '/home/sam')).toBe(DEFAULT_SETTINGS_SHOWN);
+    expect(settingsFileShown('/home/sam/.agent-inbox', '/home/sam/')).toBe(DEFAULT_SETTINGS_SHOWN);
+  });
+
+  test('a data directory moved with AGENT_INBOX_DIR is named where it is', () => {
+    expect(settingsFileShown('/home/sam/boards/work', '/home/sam')).toBe('~/boards/work/settings.json');
+    expect(settingsFileShown('/srv/board', '/home/sam')).toBe('/srv/board/settings.json');
+    // A folder that only begins like the home folder is not inside it.
+    expect(settingsFileShown('/home/samuel/.agent-inbox', '/home/sam')).toBe('/home/samuel/.agent-inbox/settings.json');
+    expect(settingsFileShown('/srv/board', '')).toBe('/srv/board/settings.json');
   });
 });
 

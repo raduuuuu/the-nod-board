@@ -249,6 +249,9 @@ describe('the plain-text line', () => {
       'Nothing answered yet. Your agent has asked nothing through the question tool. In the last 7 days about 9 of 140 replies ended with a recommendation in plain text, which the board cannot count. To have choices asked through the tool, add this to ~/.agent-inbox/settings.json: ' + ASK_SETTING,
     );
     expect(offered).toContain('<code class="command" tabindex="0">&quot;ask_through_question_tool&quot;: true</code>');
+    const moved = text(render(<Acceptance judgment={judgment({ questions: 0, overall: { agreed: 0, answered: 0 }, counts: emptyCounts, live_since: NOW, plain_text: pt([9, 140], null), settings_file: '/srv/board/settings.json' })} timeZone={UTC} />));
+    expect(moved).toContain('add this to /srv/board/settings.json: ' + ASK_SETTING);
+    expect(moved).not.toContain('~/.agent-inbox');
     const asking = text(empty(pt([9, 140], null, { asking: true })));
     expect(asking).toContain('which the board cannot count.');
     expect(asking).not.toContain('settings.json');

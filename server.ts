@@ -19,6 +19,7 @@
  * the paths read by inbox.ts configFromEnv.
  */
 import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   APP_NAME,
@@ -27,6 +28,7 @@ import {
   candidatePorts,
   captureSince,
   clearAddressPort,
+  clearStartPending,
   configFromEnv,
   instanceId,
   maybeCompact,
@@ -41,7 +43,7 @@ import {
 import { FAST_ANSWER_MS, MIN_N, TIME_BUCKET_MS } from './judgment';
 import { boardData } from './outcomes';
 import { turnWindows } from './plaintext';
-import { ASK_THROUGH_QUESTION_TOOL, UpdateCheck, plainTextSetting, settingState } from './settings';
+import { ASK_THROUGH_QUESTION_TOOL, DEFAULT_SETTINGS_SHOWN, UpdateCheck, plainTextSetting, settingState, settingsFileShown } from './settings';
 import { INSTANCE_HEADER, STARTER_STEP_MS, STARTER_WAIT_MS, probeServer, type ServerState } from './hook';
 
 export { DEFAULT_PORT };
@@ -117,11 +119,14 @@ export function judgmentJson(inbox: Inbox, version: string, now: number, latest:
   const movedOn = inbox.movedOn();
   const board = boardData(inbox.cfg.dir, { now, movedOnAt: (session) => movedOn.get(session) ?? null });
   const plainText = plainTextJson(inbox.cfg.dir, now);
+  const settingsFile = settingsFileShown(inbox.cfg.dir, process.env.HOME || os.homedir());
   return {
     now,
     version,
     /** Present only when the user turned the update check on and a newer release exists. */
     ...(latest === null ? {} : { latest_version: latest }),
+    /** Present only when the data directory is not the default one: where the settings file is, as shown to the user. */
+    ...(settingsFile === DEFAULT_SETTINGS_SHOWN ? {} : { settings_file: settingsFile }),
     /** Present only once the plain-text check has begun on this machine, or cannot be read. */
     ...(plainText === null ? {} : { plain_text: plainText as PlainTextPayload }),
     /** Below this many answered questions a share is not shown ("too few"). */
@@ -387,6 +392,13 @@ export async function serve(opts: ServeOptions = {}) {
     return null;
   }
   writeAddressPort(dir, started.port);
+  // This start worked. Without this the mark would wait for a session start that finds this
+  // server current, and an update arriving first would be reported as a start that failed.
+  try {
+    clearStartPending(dir);
+  } catch {
+    // The mark is a convenience; the hook clears it at the next session start that finds us.
+  }
   watch = setInterval(() => {
     const wanted = readWantedVersion(dir);
     if (wanted !== null && wanted !== version) leave('not-wanted');

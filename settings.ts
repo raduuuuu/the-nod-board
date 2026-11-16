@@ -20,6 +20,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 export const SETTINGS_FILE = 'settings.json';
+/** The settings file as the user is told about it when the data directory is the default one. */
+export const DEFAULT_SETTINGS_SHOWN = '~/.agent-inbox/settings.json';
+
+/**
+ * The settings file as shown to the user: under the home folder it starts with ~, so the default
+ * reads ~/.agent-inbox/settings.json; a data directory set with AGENT_INBOX_DIR is named as it is.
+ */
+export function settingsFileShown(dir: string, home: string): string {
+  const file = path.join(dir, SETTINGS_FILE);
+  const h = home.replace(/[\\/]+$/, '');
+  return h && file.startsWith(h + path.sep) ? `~${file.slice(h.length)}` : file;
+}
 export const RELEASE_MANIFEST_URL = 'https://raw.githubusercontent.com/raduuuuu/the-nod-board/release/.claude-plugin/plugin.json';
 export const UPDATE_COMMAND = 'claude plugin update nod-board@nod-board';
 export const CHECK_EVERY_MS = 24 * 3600_000;

@@ -360,7 +360,8 @@ after the name the file carries, and your project aliases apply.
 
 ## Environment
 
-`AGENT_INBOX_DIR` (data directory), `AGENT_INBOX_PORT` (one fixed port; without it the first free
+`AGENT_INBOX_DIR` (data directory; `settings.json` and `project-aliases.json` are then read from it,
+and the notice and the board name the settings file there), `AGENT_INBOX_PORT` (one fixed port; without it the first free
 port from 4777 to 4786),
 `AGENT_INBOX_TRANSCRIPTS` (default `~/.claude/projects`), `AGENT_INBOX_GSTACK_STATE_ROOT`
 (else `GSTACK_STATE_ROOT`, `GSTACK_HOME`, `GSTACK_STATE_DIR`, `~/.gstack`).

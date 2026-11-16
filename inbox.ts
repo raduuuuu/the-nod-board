@@ -551,7 +551,7 @@ export function boardUrl(port: number): string {
 
 /** Holds the address the first-run line last showed, so the line appears once per address. */
 export const SHOWN_FILE = 'address-shown';
-/** Holds the time a server start was launched; removed by the first session start that finds the server answering. */
+/** Holds the time a server start was launched; removed by the server once it serves, or by a session start that finds it answering. */
 export const PENDING_FILE = 'server-start-pending';
 
 function readSmall(file: string): string | null {

@@ -4,10 +4,10 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handle, sessionStartPlan } from './hook';
 import { Inbox } from './inbox';
-import { NOTICE_FILE, NOTICE_LINE, PHRASES, TEXT_MAX, TURNS_DIR, dayKey, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt, turnWindows } from './plaintext';
+import { NOTICE_FILE, NOTICE_LINE, noticeLine, PHRASES, TEXT_MAX, TURNS_DIR, dayKey, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt, turnWindows } from './plaintext';
 import { plainTextStatus } from './scripts/board';
 import { judgmentJson, plainTextJson } from './server';
-import { COUNT_PLAIN_TEXT, SETTINGS_FILE, plainTextSetting, settingState, settingValue } from './settings';
+import { COUNT_PLAIN_TEXT, DEFAULT_SETTINGS_SHOWN, SETTINGS_FILE, plainTextSetting, settingState, settingValue, settingsFileShown } from './settings';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nod-plain-'));
 afterAll(() => {
@@ -254,6 +254,14 @@ describe('the one-time notice', () => {
     }
   });
 
+  test('with a moved data directory the line names the settings file there, and nothing else changes', () => {
+    const moved = noticeLine('/srv/board/settings.json');
+    expect(moved).toBe(NOTICE_LINE.replace('~/.agent-inbox/settings.json', '/srv/board/settings.json'));
+    expect(noticeLine('~/.agent-inbox/settings.json')).toBe(NOTICE_LINE);
+    const plan = sessionStartPlan(dataDir({ noticeAt: null }), 'Line.', false, moved);
+    expect(shownTo(plan.output)).toBe(`Line.\n${moved}`);
+  });
+
   test('the line says what is read, what is kept and how to turn it off', () => {
     expect(NOTICE_LINE).toBe(
       'The Nod Board now checks the agent\'s last message of each turn for recommendation phrases, to estimate how many choices are made in plain text. It stores a 1 or a 0 per reply, never the text, and does not read what you type. To turn it off, add "count_plain_text": false to ~/.agent-inbox/settings.json.',
@@ -272,6 +280,13 @@ describe('what the board and the status command are given', () => {
     noteTurnEnd(dir, T, false);
     expect(plainTextJson(dir, T)).toEqual({ unreadable: false, since: T - 2 * DAY, last: { checked: 2, matched: 1 }, before: null, asking: true });
     expect(plainTextJson(dataDir(), T)).toMatchObject({ asking: false, last: { checked: 0, matched: 0 } });
+  });
+
+  test('the judgment payload names the settings file only when it is not the default one', () => {
+    const dir = dataDir();
+    const shown = settingsFileShown(dir, process.env.HOME || os.homedir());
+    expect(shown).not.toBe(DEFAULT_SETTINGS_SHOWN);
+    expect(judgmentJson(inboxOf(dir), '1.2.3', T).settings_file).toBe(shown);
   });
 
   test('the judgment payload carries it only then, and an unreadable day never costs the exact numbers', () => {

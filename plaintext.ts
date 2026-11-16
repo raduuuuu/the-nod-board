@@ -151,8 +151,11 @@ export function markNoticeShown(dir: string, now: number): void {
 }
 
 /** Shown once to the user at a session start, before anything is checked. Never reaches the agent. */
-export const NOTICE_LINE =
-  'The Nod Board now checks the agent\'s last message of each turn for recommendation phrases, to estimate how many choices are made in plain text. It stores a 1 or a 0 per reply, never the text, and does not read what you type. To turn it off, add "count_plain_text": false to ~/.agent-inbox/settings.json.';
+export function noticeLine(settingsFile: string): string {
+  return `The Nod Board now checks the agent's last message of each turn for recommendation phrases, to estimate how many choices are made in plain text. It stores a 1 or a 0 per reply, never the text, and does not read what you type. To turn it off, add "count_plain_text": false to ${settingsFile}.`;
+}
+/** The notice for the default data directory. */
+export const NOTICE_LINE = noticeLine('~/.agent-inbox/settings.json');
 
 /** The per-session value that says whether this turn may be checked (hook.ts sets and reads it). */
 export const TURN_STATE = 'turn';

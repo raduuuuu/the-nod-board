@@ -54,8 +54,8 @@ import {
 } from './inbox';
 import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
 import { noteStart, projectAt } from './project';
-import { NOTICE_LINE, TURN_ASKED, TURN_CLEAR, TURN_STATE, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt } from './plaintext';
-import { ASK_THROUGH_QUESTION_TOOL, plainTextSetting, sessionStartOutput, settingState } from './settings';
+import { NOTICE_LINE, noticeLine, TURN_ASKED, TURN_CLEAR, TURN_STATE, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt } from './plaintext';
+import { ASK_THROUGH_QUESTION_TOOL, plainTextSetting, sessionStartOutput, settingState, settingsFileShown } from './settings';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
 export const QUESTION_TOOL = 'AskUserQuestion';
@@ -270,9 +270,9 @@ function noteTurn(dir: string, p: HookPayload, now: number): void {
  * plain-text check is on and this machine's user has not been shown it; the caller marks it shown
  * only after the output has been written.
  */
-export function sessionStartPlan(dir: string, line: string | null, nudge: boolean): { output: string | null; notice: boolean } {
+export function sessionStartPlan(dir: string, line: string | null, nudge: boolean, noticeText: string = NOTICE_LINE): { output: string | null; notice: boolean } {
   const notice = plainTextSetting(dir) === 'on' && noticeShownAt(dir) === null;
-  const shown = [line, notice ? NOTICE_LINE : null].filter((x): x is string => !!x).join('\n') || null;
+  const shown = [line, notice ? noticeText : null].filter((x): x is string => !!x).join('\n') || null;
   return { output: sessionStartOutput(shown, nudge), notice };
 }
 
@@ -431,9 +431,10 @@ export async function onSessionStart(env: Record<string, string | undefined>, de
     const now = Date.now();
     const pending = quietly('read the pending start', () => startPendingSince(dir), null);
     const failed = pending !== null && now - pending > START_GRACE_MS;
-    deps.launch([path.join(deps.root, 'hook.ts'), '--start-server'], null);
     // A start another session launched moments ago keeps its own time, so its failure is still noticed.
+    // Marked before the launch: the server clears the mark once it serves, and must not get there first.
     if (pending === null || failed) quietly('record the pending start', () => markStartPending(dir, now), undefined);
+    deps.launch([path.join(deps.root, 'hook.ts'), '--start-server'], null);
     if (failed) return failedStartLine(dir);
     if (!firstRun) return null;
     const began = performance.now();
@@ -509,7 +510,9 @@ if (import.meta.main) {
     // A systemMessage is shown to the user and stays out of the model's context. The one thing
     // added to that context is a fixed sentence, and only when the user turned it on (settings.ts).
     const dir = dataDir(process.env);
-    const plan = sessionStartPlan(dir, line, settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on');
+    // The notice names the settings file where it is on this machine (AGENT_INBOX_DIR may move it).
+    const notice = noticeLine(settingsFileShown(dir, process.env.HOME || os.homedir()));
+    const plan = sessionStartPlan(dir, line, settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on', notice);
     if (plan.output) process.stdout.write(plan.output + '\n');
     if (plan.notice) {
       // Only now, after the line went out: a failure before this point shows the notice again

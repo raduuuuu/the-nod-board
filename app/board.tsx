@@ -195,7 +195,7 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
         ) : null}
         {firstRunPlain && !firstRunPlain.asking ? (
           <>
-            <p>To have choices asked through the tool, add this to ~/.agent-inbox/settings.json:</p>
+            <p>To have choices asked through the tool, add this to {j.settings_file ?? '~/.agent-inbox/settings.json'}:</p>
             <Command text={ASK_SETTING} />
           </>
         ) : null}
