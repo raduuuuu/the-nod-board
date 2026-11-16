@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import * as fs from 'node:fs';
+import * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { INSTANCE_HEADER, onSessionStart, probeServer, runStarter, firstRunLine, type ServerState, type StartDeps } from './hook';
@@ -62,6 +63,31 @@ const healthOf = async (port: number) => {
   }
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Wait until nothing listens on these ports. freePorts closes its listeners and returns at once,
+ * but a closed listener is not gone at the same instant on every system. A test that starts
+ * other processes on those ports straight away can find one still taken, and the processes then
+ * settle on other ports than the test expects (seen on Linux CI: one server on the third port,
+ * the other finding no port at all).
+ */
+async function untilClosed(ports: readonly number[], limitMs = 2_000): Promise<void> {
+  const listening = (port: number) =>
+    new Promise<boolean>((resolve) => {
+      const socket = net.connect({ host: '127.0.0.1', port });
+      socket.once('connect', () => {
+        socket.destroy();
+        resolve(true);
+      });
+      socket.once('error', () => resolve(false));
+    });
+  for (const port of ports) {
+    for (let waited = 0; await listening(port); waited += 20) {
+      if (waited >= limitMs) throw new Error(`port ${port} was still listening ${limitMs} ms after it was closed`);
+      await sleep(20);
+    }
+  }
+}
 
 describe('which ports', () => {
   test('without a fixed port: ten ports from the default, lowest first', () => {
@@ -244,6 +270,7 @@ describe('one server per data folder, with real servers', () => {
     const dir = tmp();
     fs.mkdirSync(dir, { recursive: true });
     const [a, b, c] = freePorts(3);
+    await untilClosed([a, b, c]);
     foreignOn(a);
     const script = path.join(tmp(), 'serve.ts');
     fs.writeFileSync(
@@ -262,6 +289,14 @@ describe('one server per data folder, with real servers', () => {
       answering = [];
       for (const port of [b, c]) if ((await healthOf(port))?.app === APP_NAME) answering.push(port);
       if (answering.length === 1 && readAddressPort(dir) !== null && procs.some((p) => p.exitCode !== null)) break;
+    }
+    if (answering.length !== 1 || answering[0] !== b) {
+      // Say what each process did, so a failure here explains itself in the CI log.
+      for (const [i, p] of procs.entries()) {
+        const ended = p.exitCode !== null;
+        const said = ended ? `${(await new Response(p.stdout).text()).trim()} | ${(await new Response(p.stderr).text()).trim()}` : '(still running)';
+        console.log(`process ${i}: exit ${p.exitCode}; ports a=${a} b=${b} c=${c}; said: ${said}`);
+      }
     }
     expect(answering).toEqual([b]);
     expect(readAddressPort(dir)).toBe(b);
