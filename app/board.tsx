@@ -377,7 +377,9 @@ export function CaptureHealth(props: BoardProps) {
   items.push(['live since', j ? dayTime(j.live_since, timeZone) : DASH]);
   if (inbox) {
     items.push(['last event', inbox.health.last_event_ts === null ? 'none yet' : ago(now - inbox.health.last_event_ts)]);
-    items.push(['hook errors', count(inbox.health.hook_errors)]);
+    // A count never clears by itself, so it says when the latest one happened: an old one reads as old.
+    const lastError = inbox.health.last_hook_error_ts;
+    items.push(['hook errors', count(inbox.health.hook_errors) + (lastError ? `, last ${dayTime(lastError, timeZone)}` : '')]);
   }
   if (j) {
     items.push(['past sessions', j.capture.sources.import ? 'imported' : 'not imported']);

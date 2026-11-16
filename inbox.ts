@@ -647,6 +647,8 @@ export interface InboxModel {
     unreadable: number;
     partial: number;
     hookErrors: number;
+    /** When the latest of them happened; null with none, or when its line has no time. */
+    lastHookErrorTs: number | null;
     lastEventTs: number | null;
     sessionsRunning: number;
   };
@@ -675,6 +677,20 @@ function countLines(file: string): number {
   return t ? t.split('\n').filter((l) => l.trim()).length : 0;
 }
 
+/** The file hook.ts appends one line to per problem, each beginning with the time it happened. */
+export const HOOK_ERRORS_FILE = 'hook-errors.log';
+
+/**
+ * When the latest hook problem was recorded, or null when there is none or its line carries no time.
+ * A count alone cannot tell a problem from last month from one a minute ago; the page shows both.
+ */
+export function lastHookErrorTs(dir: string): number | null {
+  const lines = (readText(path.join(dir, HOOK_ERRORS_FILE)) ?? '').split('\n').filter((l) => l.trim());
+  if (!lines.length) return null;
+  const ts = Date.parse(lines[lines.length - 1].trim().split(' ')[0]);
+  return Number.isFinite(ts) ? ts : null;
+}
+
 export class Inbox {
   constructor(readonly cfg: InboxConfig) {}
 
@@ -688,7 +704,7 @@ export class Inbox {
         events: log.missing ? 'none yet' : 'ok',
         unreadable: log.stats.unreadable,
         partial: log.stats.partial,
-        hookErrors: countLines(path.join(this.cfg.dir, 'hook-errors.log')),
+        hookErrors: countLines(path.join(this.cfg.dir, HOOK_ERRORS_FILE)),
         lastEventTs: newestTs(log.events),
         todos,
       };
@@ -736,7 +752,8 @@ export class Inbox {
         events: log.missing ? 'none yet' : 'ok',
         unreadable: log.stats.unreadable,
         partial: log.stats.partial,
-        hookErrors: countLines(path.join(this.cfg.dir, 'hook-errors.log')),
+        hookErrors: countLines(path.join(this.cfg.dir, HOOK_ERRORS_FILE)),
+        lastHookErrorTs: lastHookErrorTs(this.cfg.dir),
         lastEventTs: newestTs(log.events),
         sessionsRunning: running,
       },

@@ -105,7 +105,8 @@ First paint is the final frame with an en dash where each number will go; nothin
 pulses. The page checks for new data every 5 seconds and says "updated N s ago". After three
 failed checks it says "server not reachable since HH:MM" and keeps the last numbers. A share is
 never shown without its count; under 5 answers it reads "too few". Counts that are zero are
-not listed.
+not listed. A count of hook errors says when the latest one happened ("1, last Nov 15, 20:47"),
+since nothing clears it and an old error should read as old.
 
 ## Trend
 A dot per week for the share, a bar beneath for the number of answers. Weeks under 5 answers

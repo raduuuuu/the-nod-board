@@ -497,6 +497,13 @@ describe('capture health', () => {
     expect(health()).toBe('live since : Nov 9, 14:02 last event : 30 s ago hook errors : 0 past sessions : imported version : 0.1.0 updated just now'.replace(/ :/g, ''));
   });
 
+  test('a hook error says when the latest one happened; without a time it is the count alone', () => {
+    const timed = health({ inbox: inbox({ health: { ...inbox().health, hook_errors: 2, last_hook_error_ts: NOW } }) });
+    expect(timed).toContain('hook errors 2, last Nov 12, 14:02 past sessions');
+    const untimed = health({ inbox: inbox({ health: { ...inbox().health, hook_errors: 2 } }) });
+    expect(untimed).toContain('hook errors 2 past sessions');
+  });
+
   test('history not imported yet, and no event yet', () => {
     const t = health({ inbox: inbox({ health: { ...inbox().health, last_event_ts: null } }), judgment: judgment({ capture: { unreadable_lines: 0, sources: { hook: true, import: false } } }) });
     expect(t).toContain('last event none yet');

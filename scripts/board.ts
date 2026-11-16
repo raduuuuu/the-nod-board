@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type ServerState, type StartDeps } from '../hook';
-import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, writeWantedVersion } from '../inbox';
+import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, lastHookErrorTs, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
 import { ALIASES_FILE, readAliases } from '../project';
 
@@ -85,6 +85,9 @@ function ago(ms: number): string {
   return `${Math.floor(s / 86_400)} d ago`;
 }
 
+/** "2026-11-14 09:30 UTC": a terminal has no time zone of its own to show. */
+const utcMinute = (ts: number): string => new Date(ts).toISOString().slice(0, 16).replace('T', ' ') + ' UTC';
+
 function errorLines(dir: string): number {
   try {
     return fs.readFileSync(path.join(dir, 'hook-errors.log'), 'utf8').split('\n').filter(Boolean).length;
@@ -118,12 +121,13 @@ export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promi
     }
   }
   const since = captureSince(dir);
+  const lastError = lastHookErrorTs(dir);
   const stored = readObservations(dir);
   lines.push(
-    `capturing since: ${since === null ? 'not started' : new Date(since).toISOString().slice(0, 16).replace('T', ' ') + ' UTC'}`,
+    `capturing since: ${since === null ? 'not started' : utcMinute(since)}`,
     `questions stored: ${new Set(stored.observations.map((o) => `${o.call}/${o.pos}`)).size.toLocaleString('en-US')}`,
     `past sessions: ${stored.observations.some((o) => o.source === 'import') ? 'imported' : 'not imported (run /nod-board:import)'}`,
-    `hook errors: ${errorLines(dir).toLocaleString('en-US')}`,
+    `hook errors: ${errorLines(dir).toLocaleString('en-US')}${lastError === null ? '' : `, last ${utcMinute(lastError)}`}`,
     `data folder: ${dir}`,
   );
   // Said only when the user keeps an alias file, so a board without one reads as before.

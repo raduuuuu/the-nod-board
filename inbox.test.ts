@@ -3,11 +3,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  HOOK_ERRORS_FILE,
   HOUR,
   Inbox,
   SNAPSHOT_PRUNE_MS,
   UNASSIGNED,
   captureSince,
+  lastHookErrorTs,
   markCaptureStart,
   movedOnIndex,
   fold,
@@ -359,5 +361,20 @@ describe('what the outcome store needs from session events', () => {
     const born = captureSince(plain);
     expect(born).not.toBeNull();
     expect(Math.abs(born! - Date.now())).toBeLessThan(60_000);
+  });
+});
+
+describe('when the latest hook error happened', () => {
+  const dirWith = (log: string | null) => {
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-inbox-test-'));
+    if (log !== null) fs.writeFileSync(path.join(d, HOOK_ERRORS_FILE), log);
+    return d;
+  };
+
+  test('the time at the start of the last line; null with no file, no line, or a line without a time', () => {
+    expect(lastHookErrorTs(dirWith('2026-11-13T08:00:00Z first\n2026-11-14T09:30:00Z second\n\n'))).toBe(Date.parse('2026-11-14T09:30:00Z'));
+    expect(lastHookErrorTs(dirWith(null))).toBeNull();
+    expect(lastHookErrorTs(dirWith('\n'))).toBeNull();
+    expect(lastHookErrorTs(dirWith('2026-11-13T08:00:00Z first\nno time here\n'))).toBeNull();
   });
 });

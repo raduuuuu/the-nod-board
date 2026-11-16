@@ -78,6 +78,8 @@ export function inboxJson(m: InboxModel) {
       events: m.health.events,
       unreadable_lines: m.health.unreadable + m.health.partial,
       hook_errors: m.health.hookErrors,
+      /** Present only when there is an error whose line says when it happened. */
+      ...(m.health.lastHookErrorTs === null ? {} : { last_hook_error_ts: m.health.lastHookErrorTs }),
       sessions_running: m.health.sessionsRunning,
       last_event_ts: m.health.lastEventTs,
     },

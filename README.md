@@ -57,7 +57,7 @@ A session that was already open when you installed captures nothing until you ru
 | Command | What it does |
 |---|---|
 | `/nod-board:open` | starts the board when it is not running, opens it in your browser and prints the address |
-| `/nod-board:status` | whether it is running and where, the version, the last event, how many questions are stored, hook errors, the data folder and, when you keep an alias file, how many project aliases are in use; counts only |
+| `/nod-board:status` | whether it is running and where, the version, the last event, how many questions are stored, hook errors and when the latest one happened, the data folder and, when you keep an alias file, how many project aliases are in use; counts only |
 | `/nod-board:import` | loads your past sessions; safe to repeat |
 
 On Claude Code older than 2.1.275, install in two steps: `/plugin marketplace add

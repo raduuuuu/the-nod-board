@@ -635,6 +635,14 @@ describe('/nod-board:open and /nod-board:status', () => {
     expect(lines.join('\n')).not.toContain('SECRET');
   });
 
+  test('status says when the latest hook error happened, so an old one reads as old', async () => {
+    const env = tmpEnv();
+    fs.mkdirSync(env.AGENT_INBOX_DIR, { recursive: true });
+    fs.writeFileSync(path.join(env.AGENT_INBOX_DIR, 'hook-errors.log'), '2026-11-13T08:00:00Z first\n2026-11-14T09:30:00Z an older server did not leave\n');
+    const lines = await statusLines(env, deps(['current']).d, io().io);
+    expect(lines).toContain('hook errors: 2, last 2026-11-14 09:30 UTC');
+  });
+
   test('status with nothing running and nothing stored: says how to start it and what to run', async () => {
     const lines = await statusLines(tmpEnv(), deps(['silent']).d, io().io);
     expect(lines[1]).toBe('running: no. Start it with /nod-board:open');
