@@ -24,8 +24,8 @@
  * nothing here builds HTML from data. The components take plain props, so each state in the
  * design's state table is one render call in the tests.
  */
-import type { InboxPayload, JudgmentPayload, SessionPayload } from '../server';
-import { ago, clock, count, dayTime, duration, lasting, percent, share } from './format';
+import type { InboxPayload, JudgmentPayload, PlainTextPayload, SessionPayload } from '../server';
+import { ago, clock, count, day, dayTime, duration, lasting, percent, share } from './format';
 import { freshness, type Link } from './poll';
 import { Histogram, Marks, OutcomeBar, SeriesKey, Spider, TimeBar, Track, type OutcomeSegment } from './charts';
 import { Trend, axisStart } from './trend';
@@ -55,6 +55,40 @@ export const LIST_ROWS = 10;
 export const UNKNOWN_ROW = 'unknown';
 /** A split table longer than this folds its "too few" rows into one closing line. */
 export const FOLD_ABOVE = 6;
+
+/** Shown while the plain-text check has nothing to say: off, not begun, or unreadable. */
+export const NOT_SEEN = 'Only choices asked through the question tool are counted; a recommendation made in plain text is not seen.';
+/** The setting that asks the agent to use the question tool (settings.ts ASK_THROUGH_QUESTION_TOOL). */
+export const ASK_SETTING = '"ask_through_question_tool": true';
+
+/**
+ * The board's one estimate, under the exact figures (DESIGN.md, "The plain-text line"). Counts,
+ * never a percentage, and always "about": it comes from matching phrases, not from an answer.
+ */
+export function PlainTextLine(props: { plainText: PlainTextPayload | undefined; minN: number; timeZone?: string }) {
+  const pt = props.plainText;
+  if (!pt || pt.unreadable) return <p class="muted framing">{NOT_SEEN}</p>;
+  const { last, before } = pt;
+  if (last.checked === 0) return <p class="muted framing">Outside the question tool: no replies were checked in the last 7 days.</p>;
+  if (last.checked < props.minN) {
+    return <p class="muted framing">Outside the question tool, last 7 days: too few replies checked to say ({count(last.checked)}).</p>;
+  }
+  const compared =
+    before === null
+      ? `counting since ${day(pt.since, props.timeZone)}`
+      : before.checked === 0
+        ? 'none checked in the 7 days before'
+        : `7 days before: ${count(before.matched)} of ${count(before.checked)}`;
+  return (
+    <p class="muted framing">
+      Outside the question tool, last 7 days:{' '}
+      <span class="fig">
+        about {count(last.matched)} of {count(last.checked)}
+      </span>{' '}
+      replies ended with a recommendation ({compared}). These are not in the share above.
+    </p>
+  );
+}
 
 function Command(props: { text: string }) {
   // Focusable and selected whole on click, so it can be copied with the keyboard or the mouse.
@@ -146,12 +180,27 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
       </section>
     );
   }
+  const pt = j.plain_text;
+  const firstRunPlain = pt && !pt.unreadable && pt.last.checked >= j.min_n ? pt : null;
   if (j.questions === 0) {
     // First run: say that capture works, what is stored, and the one next step.
     return (
       <section class="acceptance" aria-labelledby="acc-h">
         <h2 id="acc-h">Recommendations taken</h2>
         <p class="lead">Capturing since {dayTime(j.live_since, props.timeZone)}. Nothing answered yet.</p>
+        {/* Why the board is empty, for a user whose agent does not use the question tool, and the one step that changes it. */}
+        {firstRunPlain ? (
+          <p>
+            Your agent has asked nothing through the question tool. In the last 7 days about {count(firstRunPlain.last.matched)} of{' '}
+            {count(firstRunPlain.last.checked)} replies ended with a recommendation in plain text, which the board cannot count.
+          </p>
+        ) : null}
+        {firstRunPlain && !firstRunPlain.asking ? (
+          <>
+            <p>To have choices asked through the tool, add this to ~/.agent-inbox/settings.json:</p>
+            <Command text={ASK_SETTING} />
+          </>
+        ) : null}
         <p>
           Each question you answer is stored as its outcome and first line only. Typed answers are never stored.
         </p>
@@ -195,7 +244,7 @@ export function Acceptance(props: { judgment: JudgmentPayload | null; timeZone?:
             <p class="muted framing">
               A high share can mean good recommendations or quick clicking; the answer time beside it is the clue.
             </p>
-            <p class="muted framing">Only choices asked through the question tool are counted; a recommendation made in plain text is not seen.</p>
+            <PlainTextLine plainText={pt} minN={j.min_n} timeZone={props.timeZone} />
           </div>
           <Histogram buckets={j.timeBuckets} bucketMs={j.time_bucket_ms} fastMs={j.fast_ms} medianMs={t.medianMs} n={t.n} fast={t.fast} minN={j.min_n} />
         </div>
@@ -386,6 +435,8 @@ export function CaptureHealth(props: BoardProps) {
   }
   if (j) {
     items.push(['past sessions', j.capture.sources.import ? 'imported' : 'not imported']);
+    // Said only when it failed: the line under the number then falls back to its plain sentence.
+    if (j.plain_text?.unreadable) items.push(['plain-text check', 'could not be read']);
     items.push(['version', j.version]);
   }
   return (

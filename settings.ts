@@ -35,21 +35,46 @@ export type UpdateSetting = Setting;
 export const CHECK_FOR_UPDATES = 'check_for_updates';
 export const ASK_THROUGH_QUESTION_TOOL = 'ask_through_question_tool';
 
-/** Only the literal true turns a setting on. A missing file is off; a broken one is off and said so. */
-export function settingState(dir: string, key: string): Setting {
+export type SettingValue = true | false | 'absent' | 'unreadable';
+
+/**
+ * One key of the user's settings file, as written: the literal true or false, 'absent' when the
+ * file or the key is missing or the value is neither, 'unreadable' when the file is not one JSON
+ * object. The one place the file is parsed.
+ */
+export function settingValue(dir: string, key: string): SettingValue {
   let text: string;
   try {
     text = fs.readFileSync(path.join(dir, SETTINGS_FILE), 'utf8');
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'off' : 'unreadable';
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? 'absent' : 'unreadable';
   }
   try {
     const parsed: unknown = JSON.parse(text);
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return 'unreadable';
-    return (parsed as Record<string, unknown>)[key] === true ? 'on' : 'off';
+    const value = (parsed as Record<string, unknown>)[key];
+    return value === true || value === false ? value : 'absent';
   } catch {
     return 'unreadable';
   }
+}
+
+/** A setting that is off until asked for: only the literal true turns it on. */
+export function settingState(dir: string, key: string): Setting {
+  const value = settingValue(dir, key);
+  return value === true ? 'on' : value === 'unreadable' ? 'unreadable' : 'off';
+}
+
+export const COUNT_PLAIN_TEXT = 'count_plain_text';
+
+/**
+ * The plain-text check (plaintext.ts) is on unless the user turns it off: on when the key is
+ * missing or true, off when it is false. A settings file that cannot be read means off, since
+ * whoever wrote it may have meant to turn the check off.
+ */
+export function plainTextSetting(dir: string): Setting {
+  const value = settingValue(dir, COUNT_PLAIN_TEXT);
+  return value === false ? 'off' : value === 'unreadable' ? 'unreadable' : 'on';
 }
 
 export const updateSetting = (dir: string): Setting => settingState(dir, CHECK_FOR_UPDATES);

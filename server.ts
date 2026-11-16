@@ -40,7 +40,8 @@ import {
 } from './inbox';
 import { FAST_ANSWER_MS, MIN_N, TIME_BUCKET_MS } from './judgment';
 import { boardData } from './outcomes';
-import { UpdateCheck } from './settings';
+import { turnWindows } from './plaintext';
+import { ASK_THROUGH_QUESTION_TOOL, UpdateCheck, plainTextSetting, settingState } from './settings';
 import { INSTANCE_HEADER, STARTER_STEP_MS, STARTER_WAIT_MS, probeServer, type ServerState } from './hook';
 
 export { DEFAULT_PORT };
@@ -88,14 +89,41 @@ export function inboxJson(m: InboxModel) {
   };
 }
 
+/**
+ * The plain-text estimate for the board (plaintext.ts), or null when there is nothing to say:
+ * the check is off, or its one-time notice has not been shown yet. A read failure is its own
+ * answer, so the exact numbers beside it are never lost to it.
+ */
+export function plainTextJson(dir: string, now: number) {
+  if (plainTextSetting(dir) !== 'on') return null;
+  try {
+    const w = turnWindows(dir, now);
+    if (w === null) return null;
+    return {
+      unreadable: false as const,
+      since: w.since,
+      last: w.last,
+      before: w.before,
+      /** Whether the agent is already asked to use the question tool; the board then offers no setting. */
+      asking: settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on',
+    };
+  } catch {
+    return { unreadable: true as const };
+  }
+}
+export type PlainTextPayload = NonNullable<ReturnType<typeof plainTextJson>>;
+
 export function judgmentJson(inbox: Inbox, version: string, now: number, latest: string | null = null) {
   const movedOn = inbox.movedOn();
   const board = boardData(inbox.cfg.dir, { now, movedOnAt: (session) => movedOn.get(session) ?? null });
+  const plainText = plainTextJson(inbox.cfg.dir, now);
   return {
     now,
     version,
     /** Present only when the user turned the update check on and a newer release exists. */
     ...(latest === null ? {} : { latest_version: latest }),
+    /** Present only once the plain-text check has begun on this machine, or cannot be read. */
+    ...(plainText === null ? {} : { plain_text: plainText as PlainTextPayload }),
     /** Below this many answered questions a share is not shown ("too few"). */
     min_n: MIN_N,
     /** An answer faster than this counts as fast (timing.fast). */

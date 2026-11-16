@@ -11,14 +11,17 @@
  *   AskUserQuestion, PostToolUse -> one classified observation per question (outcomes.ts decides
  *          what a line may hold: never option text, never the answer)
  *   SessionStart -> make sure the local server is running and current (see onSessionStart)
+ *   Stop -> also the plain-text check (see noteTurn): the agent's final message is matched against a
+ *          fixed phrase list in memory and one line, "1" or "0", goes to <dir>/turns/<day>. On by
+ *          default, off with "count_plain_text": false, and never before the one-time notice.
  *
  * Called by Codex (second argument "codex", hooks/codex-hooks.json): only the question tool's
  * two events arrive, and only question observations are written (codex.ts). No session event,
  * no attrs state and no server start: those belong to Claude Code sessions.
  *
  * Contract: always exit 0, so a session is never blocked. Nothing is printed on stdout, with two
- * exceptions, both at SessionStart only: a line shown to the user (the address on first run, or
- * that the dashboard did not start), and, only when the user turned it on in settings.json, one
+ * exceptions, both at SessionStart only: a line shown to the user (the address on first run, that
+ * the dashboard did not start, or the one-time notice of the plain-text check), and, only when the user turned it on in settings.json, one
  * fixed sentence added to the agent's context (settings.ts QUESTION_TOOL_NUDGE). Without that
  * setting nothing the agent reads is changed.
  * Problems append one line to <dir>/hook-errors.log. Files are 0600, the directory 0700.
@@ -27,7 +30,7 @@
  * a dismissed question fires PreToolUse and nothing after it).
  */
 import { spawn } from 'node:child_process';
-import { at as whoAt, note as noteAttrs, type AttrEvent } from './attrs';
+import { at as whoAt, getSessionValue, note as noteAttrs, putSessionValue, type AttrEvent } from './attrs';
 import { CODEX_ARG, codexObservations } from './codex';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -51,7 +54,8 @@ import {
 } from './inbox';
 import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
 import { noteStart, projectAt } from './project';
-import { ASK_THROUGH_QUESTION_TOOL, sessionStartOutput, settingState } from './settings';
+import { NOTICE_LINE, TURN_ASKED, TURN_CLEAR, TURN_STATE, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt } from './plaintext';
+import { ASK_THROUGH_QUESTION_TOOL, plainTextSetting, sessionStartOutput, settingState } from './settings';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
 export const QUESTION_TOOL = 'AskUserQuestion';
@@ -80,6 +84,8 @@ export interface HookPayload {
   questions: QuestionDef[] | null;
   /** The call's result on PostToolUse; null before the answer. */
   result: CallResult | null;
+  /** The agent's final message of the turn, on Stop only; null on every other event. Never stored. */
+  lastMessage: string | null;
   /** The fields that say who is acting; attrs.ts decides what they mean. */
   who: AttrEvent;
 }
@@ -127,6 +133,8 @@ export function readHookPayload(v: unknown): HookPayload | null {
     message: str(v.message),
     toolName,
     toolUseId: str(v.tool_use_id),
+    // Read for one event only, so no other event's text can reach the phrase check (plaintext.ts).
+    lastMessage: event === 'Stop' ? str(v.last_assistant_message) : null,
     questions,
     result,
   };
@@ -224,7 +232,48 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
     // Path and error class only: nothing from the payload reaches the log.
     logError(dir, `could not write to ${dir}: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
   }
+  try {
+    noteTurn(dir, payload, now);
+  } catch (err) {
+    // Error class only: nothing from the message reaches the log.
+    logError(dir, `could not record a turn end: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
+  }
   return payload;
+}
+
+/**
+ * The plain-text check (plaintext.ts), per event:
+ *
+ *   UserPromptSubmit ............. this session's turn is "clear"
+ *   AskUserQuestion, PreToolUse .. this session's turn is "asked": the exact share has this choice
+ *   Stop ......................... checked only when every line below holds, else nothing happens:
+ *                                    the user has not turned the check off (settings.ts)
+ *                                    the one-time notice has been shown on this machine
+ *                                    the turn is exactly "clear" (an unknown or unreadable state
+ *                                    skips: a session that began before this code has no history)
+ *                                    the payload carries the final message
+ *                                  then one line, "1" or "0", is appended to today's file.
+ *
+ * Throws on a failed write; handle() logs it. Nothing from the message is written or logged.
+ */
+function noteTurn(dir: string, p: HookPayload, now: number): void {
+  if (p.event === 'UserPromptSubmit') return putSessionValue(dir, p.sessionId, TURN_STATE, TURN_CLEAR);
+  if (p.event === 'PreToolUse' && p.toolName === QUESTION_TOOL) return putSessionValue(dir, p.sessionId, TURN_STATE, TURN_ASKED);
+  if (p.event !== 'Stop' || p.lastMessage === null) return;
+  if (plainTextSetting(dir) !== 'on' || noticeShownAt(dir) === null) return;
+  if (getSessionValue(dir, p.sessionId, TURN_STATE) !== TURN_CLEAR) return;
+  noteTurnEnd(dir, now, hasRecommendation(p.lastMessage));
+}
+
+/**
+ * What a session start prints, and whether the notice is part of it. The notice is due when the
+ * plain-text check is on and this machine's user has not been shown it; the caller marks it shown
+ * only after the output has been written.
+ */
+export function sessionStartPlan(dir: string, line: string | null, nudge: boolean): { output: string | null; notice: boolean } {
+  const notice = plainTextSetting(dir) === 'on' && noticeShownAt(dir) === null;
+  const shown = [line, notice ? NOTICE_LINE : null].filter((x): x is string => !!x).join('\n') || null;
+  return { output: sessionStartOutput(shown, nudge), notice };
 }
 
 /** Handle one hook invocation from Codex. Never throws. Writes question observations and nothing else. */
@@ -459,8 +508,18 @@ if (import.meta.main) {
     }
     // A systemMessage is shown to the user and stays out of the model's context. The one thing
     // added to that context is a fixed sentence, and only when the user turned it on (settings.ts).
-    const out = sessionStartOutput(line, settingState(dataDir(process.env), ASK_THROUGH_QUESTION_TOOL) === 'on');
-    if (out) process.stdout.write(out + '\n');
+    const dir = dataDir(process.env);
+    const plan = sessionStartPlan(dir, line, settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on');
+    if (plan.output) process.stdout.write(plan.output + '\n');
+    if (plan.notice) {
+      // Only now, after the line went out: a failure before this point shows the notice again
+      // next time and leaves the check off, never the other way round.
+      try {
+        markNoticeShown(dir, Date.now());
+      } catch (err) {
+        logError(dir, `could not record that the plain-text notice was shown: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
+      }
+    }
   }
   process.exit(0);
 }

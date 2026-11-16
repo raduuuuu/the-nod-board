@@ -630,6 +630,7 @@ describe('/nod-board:open and /nod-board:status', () => {
       'questions stored: 2',
       'past sessions: imported',
       'hook errors: 2',
+      'plain-text check: starts after the notice at the next session start',
       `data folder: ${dir}`,
     ]);
     expect(lines.join('\n')).not.toContain('SECRET');

@@ -57,7 +57,7 @@ A session that was already open when you installed captures nothing until you ru
 | Command | What it does |
 |---|---|
 | `/nod-board:open` | starts the board when it is not running, opens it in your browser and prints the address |
-| `/nod-board:status` | whether it is running and where, the version, the last event, how many questions are stored, hook errors and when the latest one happened, the data folder and, when you keep an alias file, how many project aliases are in use; counts only |
+| `/nod-board:status` | whether it is running and where, the version, the last event, how many questions are stored, hook errors and when the latest one happened, the plain-text check and its last 7 days, the data folder and, when you keep an alias file, how many project aliases are in use; counts only |
 | `/nod-board:import` | loads your past sessions; safe to repeat |
 
 On Claude Code older than 2.1.275, install in two steps: `/plugin marketplace add
@@ -93,6 +93,29 @@ it to put a choice that has a recommendation through the question tool and to ma
 it recommends. This is the only thing the plugin ever adds to what the agent reads, it is off
 until you turn it on, and it is a request: the agent may still decide in plain text. It does
 not apply to Codex. `/nod-board:status` says when it is on.
+
+### Recommendations made in plain text
+
+To show how much is outside its exact share, the board also keeps an estimate. At the end of each
+turn the hook checks the agent's final message against a short, fixed list of phrases ("I'd
+recommend", "I suggest", "my pick" and the like) and notes only whether one was found. Under the
+acceptance number the board then says, for example, "Outside the question tool, last 7 days: about
+9 of 140 replies ended with a recommendation (7 days before: 14 of 150)." It never tries to work
+out whether you agreed.
+
+- **It is on by default, and you are told first.** The first session start after installing or
+  updating shows one line saying what is checked and how to turn it off. Nothing is checked on
+  your machine before that line has been shown.
+- **To turn it off**, add this to `~/.agent-inbox/settings.json`: `{ "count_plain_text": false }`.
+  A settings file that cannot be read also turns it off.
+- **"Replies"** are turn ends in which no question went through the question tool; a turn that
+  asked you something that way is already in the exact share and is left out here.
+- **It is an estimate.** Measured on one person's history (960 replies, 2026-11-16): 43 of 46
+  matches were real recommendations, and at least 4 in 10 real recommendations used other words
+  and were missed. Offers such as "Want me to do that?" are not counted at all; in that history
+  they were more common than explicit recommendations. English only, Claude Code only.
+- **A count cannot be traced back.** Since no text is kept, nobody, including you, can later see
+  which reply was counted.
 
 ## Codex CLI (experimental)
 
@@ -168,7 +191,7 @@ and only then tags `v<version>`. Nothing is built or published by hand.
 
 Two append-only files in `~/.agent-inbox` (files 0600, directory 0700), beside a few one-line
 marker files (when capture began, the port the server took, the address you were last told
-about, a pending server start, when the last import ran):
+about, when the plain-text notice was shown, a pending server start, when the last import ran):
 
 - `events.jsonl`: per hook event, the session id, working directory, event name, notification
   type, notification text (cut to 500 characters) and time. At 5 MB it is compacted to at most
@@ -178,11 +201,19 @@ about, a pending server start, when the last import ran):
   asked when that is known: the model id, the skill or command name, the agent type and the
   product (names only, each cut to 80 characters). It is never compacted; it is the history.
 
+- `turns/<day>`: per turn end the plain-text check looked at, one line, `1` when a recommendation
+  phrase was found and `0` when not. No session, no time of day, no text. One small file per day,
+  never compacted.
+
 While a session runs, `attrs/<session id>/` holds the name of the skill each of its agents is in,
-the session's model and the session's project, one short file each. A session's folder is removed when the session
+the session's model, the session's project and whether its current turn asked a question through
+the tool, one short file each. A session's folder is removed when the session
 ends, or after 7 days.
 
-Never stored: option text, the answer you picked or typed, prompts, tool input or output.
+Never stored: option text, the answer you picked or typed, prompts, tool input or output, or
+anything from the agent's messages. The hook does look at one of those messages: the final one of
+each turn, in memory, for the plain-text check described under "Install". Your own prompts are
+never looked at.
 Transcripts are read only when you run the import, in memory; the hook never opens them. Nothing leaves the machine: the
 server binds 127.0.0.1, rejects any Host header other than `127.0.0.1:<port>` or
 `localhost:<port>` for the port it took, and has no route that changes anything.

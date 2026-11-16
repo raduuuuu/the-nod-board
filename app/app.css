@@ -48,6 +48,7 @@ main h2:first-child,.acceptance h2{margin-top:0}
 .band{display:grid;grid-template-columns:minmax(0,1fr);gap:var(--s6) var(--s12);align-items:start}
 .recent{margin:var(--s3) 0 0;font-size:var(--value)}
 .framing{margin-top:var(--s2)}
+.framing .fig{color:var(--text)}
 .histogram h3{margin-top:0}
 .histogram svg{display:block;width:100%;height:auto;max-width:420px}
 .histogram p{margin-top:var(--s1)}

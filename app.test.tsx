@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { render } from 'preact-render-to-string';
-import { Acceptance, Board, CaptureHealth, FOLD_ABOVE, IMPORT_COMMAND, ImportHint, LIST_ROWS, NeedsYou, Overrides, RecentSessions, Split, type BoardProps, type SplitRow } from './app/board';
+import { ASK_SETTING, Acceptance, Board, CaptureHealth, FOLD_ABOVE, IMPORT_COMMAND, ImportHint, LIST_ROWS, NOT_SEEN, NeedsYou, Overrides, PlainTextLine, RecentSessions, Split, type BoardProps, type SplitRow } from './app/board';
 import { ago, count, dayTime, duration, lasting, percent, share } from './app/format';
 import { FAILURES_BEFORE_UNREACHABLE, SLOW_FIRST_MS, freshness, initialLink, onFailure, onSuccess } from './app/poll';
 import { Histogram, OutcomeBar, Spider, TIME_BAR_MAX_MS, TimeBar, Track, spokeScale, spokes, type Profile } from './app/charts';
@@ -195,6 +195,66 @@ describe('needs you', () => {
     expect(render(<NeedsYou inbox={inbox({ todos: [] })} now={NOW} />)).not.toContain('TODOS');
     const html = render(<NeedsYou inbox={inbox({ todos: [{ project: 'owner-repo', file: 'owner-repo-TODOS.md', items: ['a deferred thing'] }] })} now={NOW} />);
     expect(text(html)).toContain('TODOS owner-repo a deferred thing');
+  });
+});
+
+describe('the plain-text line', () => {
+  const DAY = 24 * 3_600_000;
+  const pt = (last: [number, number], before: [number, number] | null, extra: { asking?: boolean; since?: number } = {}) => ({
+    unreadable: false as const,
+    since: extra.since ?? NOW - 30 * DAY,
+    last: { matched: last[0], checked: last[1] },
+    before: before === null ? null : { matched: before[0], checked: before[1] },
+    asking: extra.asking ?? false,
+  });
+  const line = (plainText: Parameters<typeof PlainTextLine>[0]['plainText']) => text(render(<PlainTextLine plainText={plainText} minN={5} timeZone={UTC} />));
+
+  test('counts with "about" and the week before, never a percentage', () => {
+    const t = line(pt([9, 1140], [14, 150]));
+    expect(t).toBe('Outside the question tool, last 7 days: about 9 of 1,140 replies ended with a recommendation (7 days before: 14 of 150). These are not in the share above.');
+    expect(t).not.toContain('%');
+  });
+
+  test('under two weeks of checking it says since when; an empty earlier week says so', () => {
+    expect(line(pt([9, 140], null, { since: NOW - 3 * DAY }))).toBe(
+      'Outside the question tool, last 7 days: about 9 of 140 replies ended with a recommendation (counting since Nov 9). These are not in the share above.',
+    );
+    expect(line(pt([9, 140], [0, 0]))).toContain('(none checked in the 7 days before)');
+  });
+
+  test('too few and none are named, so a check that stopped does not read as a clean zero', () => {
+    expect(line(pt([1, 3], [14, 150]))).toBe('Outside the question tool, last 7 days: too few replies checked to say (3).');
+    expect(line(pt([0, 0], [14, 150]))).toBe('Outside the question tool: no replies were checked in the last 7 days.');
+    expect(line(pt([0, 5], null))).toContain('about 0 of 5 replies');
+  });
+
+  test('off, not begun or unreadable: the plain sentence, and the footer says when it could not be read', () => {
+    expect(line(undefined)).toBe(NOT_SEEN);
+    expect(line({ unreadable: true })).toBe(NOT_SEEN);
+    const footer = (j: Partial<JudgmentPayload>) => text(render(<CaptureHealth inbox={inbox()} judgment={judgment(j)} link={okLink} now={NOW} weeks={12} timeZone={UTC} />));
+    expect(footer({ plain_text: { unreadable: true } })).toContain('plain-text check could not be read version');
+    expect(footer({ plain_text: pt([9, 140], null) })).not.toContain('plain-text check');
+    expect(footer({})).not.toContain('plain-text check');
+  });
+
+  test('it takes the place of the plain sentence under the number, after the framing sentence', () => {
+    const t = text(render(<Acceptance judgment={judgment({ plain_text: pt([9, 140], [14, 150]) })} timeZone={UTC} />));
+    expect(t).toContain('the answer time beside it is the clue. Outside the question tool, last 7 days: about 9 of 140 replies');
+    expect(t).not.toContain(NOT_SEEN);
+  });
+
+  test('an empty board says why it is empty and offers the setting only while it is off', () => {
+    const empty = (plain_text: JudgmentPayload['plain_text']) =>
+      render(<Acceptance judgment={judgment({ questions: 0, overall: { agreed: 0, answered: 0 }, counts: emptyCounts, live_since: NOW, plain_text })} timeZone={UTC} />);
+    const offered = empty(pt([9, 140], null));
+    expect(text(offered)).toContain(
+      'Nothing answered yet. Your agent has asked nothing through the question tool. In the last 7 days about 9 of 140 replies ended with a recommendation in plain text, which the board cannot count. To have choices asked through the tool, add this to ~/.agent-inbox/settings.json: ' + ASK_SETTING,
+    );
+    expect(offered).toContain('<code class="command" tabindex="0">&quot;ask_through_question_tool&quot;: true</code>');
+    const asking = text(empty(pt([9, 140], null, { asking: true })));
+    expect(asking).toContain('which the board cannot count.');
+    expect(asking).not.toContain('settings.json');
+    for (const quiet of [undefined, { unreadable: true as const }, pt([1, 3], null)]) expect(text(empty(quiet))).not.toContain('Your agent has asked nothing');
   });
 });
 

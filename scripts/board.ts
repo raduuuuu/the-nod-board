@@ -18,7 +18,8 @@ import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type S
 import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, lastHookErrorTs, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
 import { ALIASES_FILE, readAliases } from '../project';
-import { ASK_THROUGH_QUESTION_TOOL, SETTINGS_FILE, settingState, updateSetting } from '../settings';
+import { noticeShownAt, turnWindows } from '../plaintext';
+import { ASK_THROUGH_QUESTION_TOOL, SETTINGS_FILE, plainTextSetting, settingState, updateSetting } from '../settings';
 
 type Env = Record<string, string | undefined>;
 
@@ -97,6 +98,23 @@ function errorLines(dir: string): number {
   }
 }
 
+/** The plain-text check in one line, in the same states the board shows (plaintext.ts). */
+export function plainTextStatus(dir: string, now: number): string {
+  const setting = plainTextSetting(dir);
+  if (setting === 'off') return 'plain-text check: off';
+  if (setting === 'unreadable') return `plain-text check: off; ${path.join(dir, SETTINGS_FILE)} could not be read`;
+  if (noticeShownAt(dir) === null) return 'plain-text check: starts after the notice at the next session start';
+  try {
+    const w = turnWindows(dir, now)!;
+    const since = new Date(w.since).toISOString().slice(0, 10);
+    return w.last.checked === 0
+      ? `plain-text check: on since ${since}; no replies checked in the last 7 days`
+      : `plain-text check: on since ${since}; about ${w.last.matched.toLocaleString('en-US')} of ${w.last.checked.toLocaleString('en-US')} replies in the last 7 days`;
+  } catch {
+    return 'plain-text check: could not be read';
+  }
+}
+
 /** What a user needs to tell whether capture works, and what to paste into a bug report. Counts only. */
 export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promise<string[]> {
   const dir = dataDir(env);
@@ -129,6 +147,7 @@ export async function statusLines(env: Env, deps: StartDeps, io: BoardIo): Promi
     `questions stored: ${new Set(stored.observations.map((o) => `${o.call}/${o.pos}`)).size.toLocaleString('en-US')}`,
     `past sessions: ${stored.observations.some((o) => o.source === 'import') ? 'imported' : 'not imported (run /nod-board:import)'}`,
     `hook errors: ${errorLines(dir).toLocaleString('en-US')}${lastError === null ? '' : `, last ${utcMinute(lastError)}`}`,
+    plainTextStatus(dir, io.now()),
     `data folder: ${dir}`,
   );
   // Said only when the user keeps an alias file, so a board without one reads as before.

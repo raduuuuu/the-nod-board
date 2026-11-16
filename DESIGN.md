@@ -63,13 +63,36 @@ No sideways page scrolling at any width.
 The acceptance number is the only 40px value. Under it, in this order: the outcome bar, one bar
 for every question to scale (took, chose otherwise, dismissed, unanswered, unreadable, excluded)
 with a key that gives each count and lists only what exists; the last 7 days as one 20px line,
-"Last 7 days: 91% (169 of 186)", or "too few" with the count under 5; then the framing sentence.
+"Last 7 days: 91% (169 of 186)", or "too few" with the count under 5; then the framing sentence. The plain-text line closes the block.
 
 Beside the number from 1280px, under it below: "How fast you answer", a histogram of answer
 times in 5 second bars up to 3 minutes, with one outlined bar for everything slower, a dashed
 marker at 15 seconds and a triangle at the median. One line under it says the same: the share
 under 15 seconds with its count, and the median. Under 5 timed answers it draws nothing and
 says how many there are.
+
+## The plain-text line
+The board's one estimate. It sits third under the number, after the last 7 days and the framing
+sentence, at 16px in the muted color with its figures in the text color. It gives counts and the
+word "about", never a percentage, so it cannot be read as a second acceptance share. "Replies"
+are turn ends in which no question went through the question tool.
+
+| State | Text |
+|---|---|
+| This week and the week before | Outside the question tool, last 7 days: about 9 of 140 replies ended with a recommendation (7 days before: 14 of 150). These are not in the share above. |
+| Checking began under two weeks ago | the same, with "(counting since Nov 16)" in place of the comparison |
+| Nothing checked in the week before | the same, with "(none checked in the 7 days before)" |
+| Fewer than 5 replies checked | Outside the question tool, last 7 days: too few replies checked to say (3). |
+| None checked | Outside the question tool: no replies were checked in the last 7 days. |
+| Off, not begun, or unreadable | Only choices asked through the question tool are counted; a recommendation made in plain text is not seen. |
+
+When the data cannot be read, capture health also says "plain-text check: could not be read".
+
+On a board with no counted questions, once at least 5 replies were checked, the first-run block
+says why it is empty: "Your agent has asked nothing through the question tool. In the last 7 days
+about 9 of 140 replies ended with a recommendation in plain text, which the board cannot count."
+While the agent is not yet asked to use the tool, it adds "To have choices asked through the
+tool, add this to ~/.agent-inbox/settings.json:" and the setting as a command.
 
 ## Lists and splits
 Recent sessions and Where you overrode show 10 rows. The overrides list offers the rest through
@@ -153,5 +176,4 @@ Refreshes never move focus; only "server not reachable" is announced.
 Utility language: "Needs you", "took the recommendation", "Where you overrode", "Capture health".
 Under the number, always: "A high share can mean good recommendations or quick clicking; the
 answer time beside it is the clue."
-After it, always, as its own line: "Only choices asked through the question tool are counted; a
-recommendation made in plain text is not seen."
+After it, always, as its own line: the plain-text line, in the state that applies.
