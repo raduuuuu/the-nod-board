@@ -179,6 +179,9 @@ footer dd{display:inline;margin:0;color:var(--text)}
   .split td+td::before{content:" · ";color:var(--muted)}
   .split td:nth-of-type(2)::after{content:" answers";color:var(--muted)}
   .list td{margin-right:var(--s3);color:var(--muted);font-size:var(--label)}
+  /* a session: its squares on a line of their own, then the count and the answer time, labelled */
+  .list td.taken{display:block;margin-right:0}
+  .list .time::before{content:"answer time "}
   .track,.tbar{display:none}
   .split .val{display:inline;min-width:0}
   .marks[data-cols]{width:100%}
