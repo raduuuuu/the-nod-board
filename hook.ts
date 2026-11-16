@@ -19,7 +19,7 @@
  * Contract: always exit 0, so a session is never blocked. Nothing is printed on stdout, with two
  * exceptions, both at SessionStart only: a line shown to the user (the address on first run, or
  * that the dashboard did not start), and, only when the user turned it on in settings.json, one
- * fixed sentence added to the agent's context (updates.ts QUESTION_TOOL_NUDGE). Without that
+ * fixed sentence added to the agent's context (settings.ts QUESTION_TOOL_NUDGE). Without that
  * setting nothing the agent reads is changed.
  * Problems append one line to <dir>/hook-errors.log. Files are 0600, the directory 0700.
  * `readHookPayload` is the only place that knows the payload shape (measured on Claude Code
@@ -51,7 +51,7 @@ import {
 } from './inbox';
 import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
 import { noteStart, projectAt } from './project';
-import { ASK_THROUGH_QUESTION_TOOL, sessionStartOutput, settingState } from './updates';
+import { ASK_THROUGH_QUESTION_TOOL, sessionStartOutput, settingState } from './settings';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
 export const QUESTION_TOOL = 'AskUserQuestion';
@@ -458,7 +458,7 @@ if (import.meta.main) {
       logError(dataDir(process.env), `session start failed: ${(err as Error).name}`);
     }
     // A systemMessage is shown to the user and stays out of the model's context. The one thing
-    // added to that context is a fixed sentence, and only when the user turned it on (updates.ts).
+    // added to that context is a fixed sentence, and only when the user turned it on (settings.ts).
     const out = sessionStartOutput(line, settingState(dataDir(process.env), ASK_THROUGH_QUESTION_TOOL) === 'on');
     if (out) process.stdout.write(out + '\n');
   }

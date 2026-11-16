@@ -10,7 +10,7 @@
  *                        directory is readable (no events yet is ok)
  *
  * Bound to 127.0.0.1. It makes no outside request, with one exception the user has to turn on:
- * the update check (updates.ts). Every request whose Host header is not exactly 127.0.0.1:<port> or
+ * the update check (settings.ts). Every request whose Host header is not exactly 127.0.0.1:<port> or
  * localhost:<port> gets 403 (DNS-rebinding guard). GET and HEAD only: there is no route that
  * changes anything. The page may load scripts, styles, fonts and data from this server only
  * (CSP), with no inline script; all session text is rendered as text by the app.
@@ -40,7 +40,7 @@ import {
 } from './inbox';
 import { FAST_ANSWER_MS, MIN_N, TIME_BUCKET_MS } from './judgment';
 import { boardData } from './outcomes';
-import { UpdateCheck } from './updates';
+import { UpdateCheck } from './settings';
 import { INSTANCE_HEADER, STARTER_STEP_MS, STARTER_WAIT_MS, probeServer, type ServerState } from './hook';
 
 export { DEFAULT_PORT };

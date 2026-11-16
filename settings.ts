@@ -1,5 +1,5 @@
 /**
- * updates.ts: what a user can turn on in settings.json. Chiefly the one outside request The Nod
+ * settings.ts: what a user can turn on in settings.json. Chiefly the one outside request The Nod
  * Board can make, the update check; also the sentence that asks the agent to use the question tool.
  *
  * Off unless <data dir>/settings.json says {"check_for_updates": true}. That file is the user's:

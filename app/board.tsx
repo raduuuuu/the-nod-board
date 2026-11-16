@@ -47,7 +47,7 @@ export interface BoardProps {
 const DASH = '–';
 const TOO_FEW = 'too few';
 export const IMPORT_COMMAND = '/nod-board:import';
-/** Same text as updates.ts UPDATE_COMMAND; the app does not import server modules. */
+/** Same text as settings.ts UPDATE_COMMAND; the app does not import server modules. */
 export const UPDATE_COMMAND = 'claude plugin update nod-board@nod-board';
 /** Rows shown at once in the two lists; the overrides list offers the rest on request. */
 export const LIST_ROWS = 10;

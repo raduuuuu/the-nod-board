@@ -4,8 +4,8 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { Inbox } from './inbox';
 import { makeHandler } from './server';
-import { ASK_THROUGH_QUESTION_TOOL, QUESTION_TOOL_NUDGE, sessionStartOutput, settingState } from './updates';
-import { CHECK_EVERY_MS, RELEASE_MANIFEST_URL, RETRY_AFTER_MS, SETTINGS_FILE, UpdateCheck, isNewer, manifestVersion, updateSetting } from './updates';
+import { ASK_THROUGH_QUESTION_TOOL, QUESTION_TOOL_NUDGE, sessionStartOutput, settingState } from './settings';
+import { CHECK_EVERY_MS, RELEASE_MANIFEST_URL, RETRY_AFTER_MS, SETTINGS_FILE, UpdateCheck, isNewer, manifestVersion, updateSetting } from './settings';
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nod-updates-'));
 afterAll(() => fs.rmSync(root, { recursive: true, force: true }));

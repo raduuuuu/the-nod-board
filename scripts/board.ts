@@ -18,7 +18,7 @@ import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type S
 import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, lastHookErrorTs, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
 import { ALIASES_FILE, readAliases } from '../project';
-import { ASK_THROUGH_QUESTION_TOOL, SETTINGS_FILE, settingState, updateSetting } from '../updates';
+import { ASK_THROUGH_QUESTION_TOOL, SETTINGS_FILE, settingState, updateSetting } from '../settings';
 
 type Env = Record<string, string | undefined>;
 
