@@ -74,6 +74,7 @@ says how many there are.
 Recent sessions and Where you overrode show 10 rows. The overrides list offers the rest through
 the browser's own disclosure, styled as 13px underlined text in the text color with no marker:
 "Show all 50", then "Show 10". Its open state survives the refresh.
+"Weekly numbers" under the trend is the same kind of disclosure and looks the same.
 
 gstack TODOS, when there are any, sit under Needs you behind the same kind of disclosure,
 closed, labelled with their count: "TODOS (33)". Each item begins with its project's name in

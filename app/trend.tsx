@@ -121,7 +121,7 @@ export function Trend(props: { weekly: WeekPoint[]; weeklyTime?: WeekTime[]; min
       <p class="muted small">
         Dots show the share taken{from > 0 ? `; the share axis starts at ${from}%` : ''}.{hasTimes ? ' Squares show the median answer time.' : ''} Bars show how many answers each week had. A week with fewer than {props.minN} answers has a bar and no dot.
       </p>
-      <details>
+      <details class="more weekly">
         <summary>Weekly numbers</summary>
         <table class="weeks">
           <thead>
