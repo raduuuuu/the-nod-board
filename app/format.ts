@@ -27,6 +27,12 @@ export function ago(ms: number): string {
   return `${Math.floor(h / 24)} d ago`;
 }
 
+/** How long something has lasted, to follow a verb: "waiting for 4 min", "waiting just now". */
+export function lasting(ms: number): string {
+  const text = ago(ms);
+  return text.endsWith(' ago') ? `for ${text.slice(0, -4)}` : text;
+}
+
 export function day(ts: number, timeZone?: string): string {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone }).format(ts);
 }

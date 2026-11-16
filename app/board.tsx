@@ -25,7 +25,7 @@
  * design's state table is one render call in the tests.
  */
 import type { InboxPayload, JudgmentPayload, SessionPayload } from '../server';
-import { ago, clock, count, dayTime, duration, percent, share } from './format';
+import { ago, clock, count, dayTime, duration, lasting, percent, share } from './format';
 import { freshness, type Link } from './poll';
 import { Histogram, Marks, OutcomeBar, SeriesKey, Spider, TimeBar, Track, type OutcomeSegment } from './charts';
 import { Trend, axisStart } from './trend';
@@ -65,7 +65,7 @@ function Command(props: { text: string }) {
 
 function sessionLabel(s: SessionPayload, now: number): string {
   const stale = s.display === 'STALE' ? ' (no event for 12 h+)' : '';
-  if (s.state === 'WAITING') return `waiting ${ago(now - s.since)}${stale}`;
+  if (s.state === 'WAITING') return `waiting ${lasting(now - s.since)}${stale}`;
   if (s.state === 'PERMISSION_ASKED') return `permission asked ${ago(now - s.since)}, may be approved${stale}`;
   return `finished ${ago(now - s.since)}`;
 }

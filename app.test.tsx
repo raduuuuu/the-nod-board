@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { render } from 'preact-render-to-string';
 import { Acceptance, Board, CaptureHealth, FOLD_ABOVE, IMPORT_COMMAND, ImportHint, LIST_ROWS, NeedsYou, Overrides, RecentSessions, Split, type BoardProps, type SplitRow } from './app/board';
-import { ago, count, dayTime, duration, percent, share } from './app/format';
+import { ago, count, dayTime, duration, lasting, percent, share } from './app/format';
 import { FAILURES_BEFORE_UNREACHABLE, SLOW_FIRST_MS, freshness, initialLink, onFailure, onSuccess } from './app/poll';
 import { Histogram, OutcomeBar, Spider, TIME_BAR_MAX_MS, TimeBar, Track, spokeScale, spokes, type Profile } from './app/charts';
 import { Trend, axisStart, type WeekPoint } from './app/trend';
@@ -98,6 +98,7 @@ describe('format', () => {
     expect(share({ agreed: 0, answered: 0 }, MIN_N)).toBeNull(); // never NaN%
     expect([duration(41_654), duration(119_400), duration(150_000), duration(null)]).toEqual(['42 s', '119 s', '3 min', '']);
     expect([ago(0), ago(4_999), ago(5_000), ago(59_000), ago(240_000), ago(3_600_000), ago(49 * 3_600_000), ago(-5)]).toEqual(['just now', 'just now', '5 s ago', '59 s ago', '4 min ago', '1 h ago', '2 d ago', 'just now']);
+    expect([lasting(0), lasting(59_000), lasting(240_000), lasting(13 * 3_600_000), lasting(49 * 3_600_000)]).toEqual(['just now', 'for 59 s', 'for 4 min', 'for 13 h', 'for 2 d']);
     expect(dayTime(NOW, UTC)).toBe('Nov 12, 14:02');
     expect(dayTime(null)).toBe('unknown');
   });
@@ -179,10 +180,10 @@ describe('needs you', () => {
     const t = text(html);
     expect(t).toContain('Needs you (4)');
     expect(html).toContain('<h2 id="needs-h" class="accent">'); // the accent is only for things that need you
-    expect(t).toContain('thing waiting 4 min ago Claude is waiting for your input claude --resume sess-1');
+    expect(t).toContain('thing waiting for 4 min Claude is waiting for your input claude --resume sess-1');
     expect(t).toContain('permission asked 2 min ago, may be approved');
     expect(t).toContain('finished 10 min ago');
-    expect(t).toContain('waiting 13 h ago (no event for 12 h+)');
+    expect(t).toContain('waiting for 13 h (no event for 12 h+)');
     expect(html).toContain('<li class="stale">');
     expect(html).toContain('<code class="command" tabindex="0">claude --resume sess-2</code>');
     expect(html.indexOf('Waiting on you')).toBeLessThan(html.indexOf('Permission asked'));
