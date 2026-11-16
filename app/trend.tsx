@@ -40,6 +40,7 @@ const TIME_H = 36;
 const TIME_GAP = 24;
 const LEFT = 58; // room for the widest axis label, "answers"
 const BAR_MAX_W = 48;
+const LAST_LABEL_HALF = 26; // half the width of "this week" at the axis size
 
 /**
  * Weekly trend: a dot per week for the share, a bar beneath for how many answers it rests on.
@@ -80,6 +81,7 @@ export function Trend(props: { weekly: WeekPoint[]; weeklyTime?: WeekTime[]; min
   const lines: [number, number][] = [];
   for (let i = 1; i < points.length; i++) if (shown[i - 1] && shown[i]) lines.push([i - 1, i]);
   const qualifying = points.filter((_, i) => shown[i]);
+  const lastFits = x(points.length - 1) + LAST_LABEL_HALF <= W;
   const summary = `Share of recommendations taken per week over the last ${points.length} ${points.length === 1 ? 'week' : 'weeks'}. ${qualifying.length} ${qualifying.length === 1 ? 'week has' : 'weeks have'} at least ${props.minN} answers; the latest of those is ${percent(qualifying[qualifying.length - 1].agreed, qualifying[qualifying.length - 1].answered)}.`;
   return (
     <section class="trend" aria-labelledby="trend-h">
@@ -113,7 +115,8 @@ export function Trend(props: { weekly: WeekPoint[]; weeklyTime?: WeekTime[]; min
         })}
         <text class="axis" x={LEFT - 6} y={barTop + BAR_H} text-anchor="end">answers</text>
         {points.length > 1 ? <text class="axis" x={x(0)} y={barTop + BAR_H + 14} text-anchor="middle">{day(points[0].start, props.timeZone)}</text> : null}
-        <text class="axis" x={x(points.length - 1)} y={barTop + BAR_H + 14} text-anchor="middle">this week</text>
+        {/* centred under its week, unless that would run past the right edge of a narrow chart */}
+        <text class="axis" x={lastFits ? x(points.length - 1) : W} y={barTop + BAR_H + 14} text-anchor={lastFits ? 'middle' : 'end'}>this week</text>
       </svg>
       <p class="muted small">
         Dots show the share taken{from > 0 ? `; the share axis starts at ${from}%` : ''}.{hasTimes ? ' Squares show the median answer time.' : ''} Bars show how many answers each week had. A week with fewer than {props.minN} answers has a bar and no dot.
