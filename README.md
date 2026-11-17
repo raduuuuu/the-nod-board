@@ -111,7 +111,12 @@ out whether you agreed.
 - **To turn it off**, add this to `~/.agent-inbox/settings.json`: `{ "count_plain_text": false }`.
   A settings file that cannot be read also turns it off.
 - **"Replies"** are turn ends in which no question went through the question tool; a turn that
-  asked you something that way is already in the exact share and is left out here.
+  asked you something that way is already in the exact share and is left out here. So is the
+  agent's wrap-up when a background task from that turn ends later, since it may repeat the
+  recommendation you already answered. Claude Code announces such an end with a prompt nobody
+  typed, which cannot be told from yours without reading it, so the first turn after a question
+  is also left out while a background task is still running. A task that never ends, such as a
+  dev server, costs that one turn and no more.
 - **It is an estimate.** Measured on one person's history (960 replies, 2026-11-16): 43 of 46
   matches were real recommendations, and at least 4 in 10 real recommendations used other words
   and were missed. Offers such as "Want me to do that?" are not counted at all; in that history
@@ -208,14 +213,15 @@ about, when the plain-text notice was shown, a pending server start, when the la
   never compacted.
 
 While a session runs, `attrs/<session id>/` holds the name of the skill each of its agents is in,
-the session's model, the session's project and whether its current turn asked a question through
-the tool, one short file each. A session's folder is removed when the session
-ends, or after 7 days.
+the session's model, the session's project, whether its current turn asked a question through
+the tool, the id Claude Code gave that turn, and the ids of up to 4 background tasks whose end is
+still expected (ids only, never a task's description or command), one short file each. A
+session's folder is removed when the session ends, or after 7 days.
 
 Never stored: option text, the answer you picked or typed, prompts, tool input or output, or
 anything from the agent's messages. The hook does look at one of those messages: the final one of
 each turn, in memory, for the plain-text check described under "Install". Your own prompts are
-never looked at.
+never looked at; of a prompt event the hook reads only the id of the turn.
 Transcripts are read only when you run the import, in memory; the hook never opens them. Nothing leaves the machine: the
 server binds 127.0.0.1, rejects any Host header other than `127.0.0.1:<port>` or
 `localhost:<port>` for the port it took, and has no route that changes anything.

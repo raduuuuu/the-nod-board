@@ -163,3 +163,11 @@ export const TURN_STATE = 'turn';
 export const TURN_CLEAR = 'clear';
 /** Written when a question goes through the tool: its turn end is not checked. */
 export const TURN_ASKED = 'asked';
+/** The per-session value that holds the prompt id of the turn that asked, so a prompt event inside that turn is known. */
+export const TURN_PROMPT = 'turn-prompt';
+/** The per-session value that holds the ids of background tasks whose end will arrive as a prompt nobody typed. */
+export const TURN_DUE = 'turn-due';
+/** At most this many are remembered; with TASK_ID they fit one stored value. */
+export const DUE_MAX = 4;
+/** A background task id as Claude Code writes it. Anything else is ignored, so nothing but a plain id is ever kept. */
+export const TASK_ID = /^[A-Za-z0-9_-]{1,19}$/;

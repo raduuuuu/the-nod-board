@@ -41,7 +41,13 @@ const envOf = (dir: string) => ({ AGENT_INBOX_DIR: dir, HOME: root });
 const send = (dir: string, payload: Record<string, unknown>, now = T) => handle(JSON.stringify({ session_id: 'sess-1', cwd: '/w', ...payload }), envOf(dir), now);
 const prompt = (dir: string, extra: Record<string, unknown> = {}) => send(dir, { hook_event_name: 'UserPromptSubmit', prompt: 'SECRET-PROMPT-TEXT', ...extra });
 const stop = (dir: string, message: unknown, extra: Record<string, unknown> = {}) => send(dir, { hook_event_name: 'Stop', last_assistant_message: message, ...extra });
-const ask = (dir: string) => send(dir, { hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_use_id: 'toolu_1', tool_input: { questions: [] } });
+const ask = (dir: string, extra: Record<string, unknown> = {}) =>
+  send(dir, { hook_event_name: 'PreToolUse', tool_name: 'AskUserQuestion', tool_use_id: 'toolu_1', tool_input: { questions: [] }, ...extra });
+/** A background task as Claude Code lists it on Stop and SubagentStop. Its description and command must never be kept. */
+const task = (id: string, type = 'subagent') => ({ id, type, status: 'running', description: 'SECRET-TASK-DESCRIPTION', command: 'SECRET-TASK-COMMAND' });
+const subagentStop = (dir: string, agentId: string, tasks: unknown[], extra: Record<string, unknown> = {}) =>
+  send(dir, { hook_event_name: 'SubagentStop', agent_id: agentId, agent_type: 'general-purpose', last_assistant_message: 'SECRET-SUBAGENT-TEXT', background_tasks: tasks, ...extra });
+const RECAP = "You picked B. I'd recommend running the tests next.";
 /** Every file under a folder, as one string: what a search for leaked text looks through. */
 const everything = (dir: string): string =>
   fs
@@ -165,6 +171,90 @@ describe('the hook at a turn end', () => {
     prompt(dir);
     stop(dir, 'Done.');
     expect(lines(dir, T)).toEqual(['0']);
+  });
+
+  // Claude Code also fires UserPromptSubmit for a prompt nobody typed: the notice that a background
+  // task finished. Each case below is an order of events recorded from Claude Code 2.1.325.
+  test('a notice delivered inside the turn that asked does not clear it: same prompt id', () => {
+    const dir = dataDir();
+    prompt(dir, { prompt_id: 'p1' });
+    ask(dir, { prompt_id: 'p1' });
+    subagentStop(dir, 'agentA', [task('agentA')], { prompt_id: 'p1' });
+    prompt(dir, { prompt_id: 'p1' }); // the notice, between two tool calls
+    stop(dir, RECAP, { prompt_id: 'p1', background_tasks: [] });
+    expect(lines(dir, T)).toEqual([]);
+    prompt(dir, { prompt_id: 'p2' }); // the notice was used up: this one is the user's
+    stop(dir, 'Done.', { prompt_id: 'p2', background_tasks: [] });
+    expect(lines(dir, T)).toEqual(['0']);
+  });
+
+  test('a background subagent that ended before the turn did: its notice starts a turn that is not checked', () => {
+    const dir = dataDir();
+    prompt(dir, { prompt_id: 'p1' });
+    ask(dir, { prompt_id: 'p1' });
+    subagentStop(dir, 'agentA', [task('agentA')], { prompt_id: 'p1' });
+    stop(dir, 'Started.', { prompt_id: 'p1', background_tasks: [] }); // no longer listed here
+    prompt(dir, { prompt_id: 'p2' }); // the notice
+    stop(dir, RECAP, { prompt_id: 'p2', background_tasks: [] });
+    expect(lines(dir, T)).toEqual([]);
+    prompt(dir, { prompt_id: 'p3' });
+    stop(dir, 'Done.', { prompt_id: 'p3', background_tasks: [] });
+    expect(lines(dir, T)).toEqual(['0']);
+  });
+
+  test('a background task still running when the turn ended is expected once, whether or not its end is also seen', () => {
+    for (const type of ['subagent', 'shell']) {
+      const dir = dataDir();
+      prompt(dir, { prompt_id: 'p1' });
+      ask(dir, { prompt_id: 'p1' });
+      stop(dir, 'Started.', { prompt_id: 'p1', background_tasks: [task('taskA', type)] });
+      if (type === 'subagent') subagentStop(dir, 'taskA', [task('taskA')], { prompt_id: 'p1' }); // the same task: counted once
+      prompt(dir, { prompt_id: 'p2' }); // the notice
+      stop(dir, RECAP, { prompt_id: 'p2', background_tasks: [] });
+      expect(lines(dir, T)).toEqual([]);
+      prompt(dir, { prompt_id: 'p3' });
+      stop(dir, 'Done.', { prompt_id: 'p3', background_tasks: [] });
+      expect(lines(dir, T)).toEqual(['0']);
+    }
+  });
+
+  test('a task that never ends costs one turn after a question, not every turn after it', () => {
+    const dir = dataDir();
+    const server = [task('devserver', 'shell')];
+    prompt(dir, { prompt_id: 'p1' });
+    ask(dir, { prompt_id: 'p1' });
+    stop(dir, 'Answered.', { prompt_id: 'p1', background_tasks: server });
+    prompt(dir, { prompt_id: 'p2' }); // typed, but it cannot be told from a notice: skipped
+    stop(dir, "I'd recommend A.", { prompt_id: 'p2', background_tasks: server });
+    expect(lines(dir, T)).toEqual([]);
+    prompt(dir, { prompt_id: 'p3' });
+    stop(dir, "I'd recommend A.", { prompt_id: 'p3', background_tasks: server });
+    expect(lines(dir, T)).toEqual(['1']);
+  });
+
+  test('a subagent that ran in the foreground, and background work in a turn that asked nothing, cost nothing', () => {
+    const dir = dataDir();
+    prompt(dir, { prompt_id: 'p1' });
+    ask(dir, { prompt_id: 'p1' });
+    subagentStop(dir, 'agentF', [], { prompt_id: 'p1' }); // foreground: not in the list
+    stop(dir, 'Answered.', { prompt_id: 'p1', background_tasks: [] });
+    prompt(dir, { prompt_id: 'p2' });
+    stop(dir, 'Done.', { prompt_id: 'p2', background_tasks: [task('agentB')] });
+    subagentStop(dir, 'agentB', [task('agentB')], { prompt_id: 'p2' });
+    prompt(dir, { prompt_id: 'p3' }); // the notice, after a turn with no question: its reply is checked like any other
+    stop(dir, "It finished. I'd recommend merging.", { prompt_id: 'p3', background_tasks: [] });
+    expect(lines(dir, T)).toEqual(['0', '1']);
+  });
+
+  test('of a background task only its id is kept, and ids that are not plain are ignored', () => {
+    const dir = dataDir();
+    prompt(dir, { prompt_id: 'p1' });
+    ask(dir, { prompt_id: 'p1' });
+    subagentStop(dir, 'agentA', [task('agentA')], { prompt_id: 'p1' });
+    stop(dir, 'Started.', { prompt_id: 'p1', background_tasks: [task('taskB', 'shell'), task('../../etc,passwd'), { id: 7 }, 'junk', null] });
+    const kept = everything(dir);
+    for (const secret of ['SECRET-TASK-DESCRIPTION', 'SECRET-TASK-COMMAND', 'SECRET-SUBAGENT-TEXT', 'SECRET-PROMPT-TEXT', 'passwd']) expect(kept).not.toContain(secret);
+    expect(fs.readFileSync(path.join(dir, 'attrs', 'sess-1', 'turn-due'), 'utf8')).toBe('agentA,taskB');
   });
 
   test('a session that has seen no prompt under this code is skipped, and so is one whose state cannot be read', () => {

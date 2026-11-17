@@ -54,7 +54,7 @@ import {
 } from './inbox';
 import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
 import { noteStart, projectAt } from './project';
-import { NOTICE_LINE, noticeLine, TURN_ASKED, TURN_CLEAR, TURN_STATE, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt } from './plaintext';
+import { DUE_MAX, NOTICE_LINE, noticeLine, TASK_ID, TURN_ASKED, TURN_CLEAR, TURN_DUE, TURN_PROMPT, TURN_STATE, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt } from './plaintext';
 import { ASK_THROUGH_QUESTION_TOOL, plainTextSetting, sessionStartOutput, settingState, settingsFileShown } from './settings';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
@@ -86,12 +86,24 @@ export interface HookPayload {
   result: CallResult | null;
   /** The agent's final message of the turn, on Stop only; null on every other event. Never stored. */
   lastMessage: string | null;
+  /** Names the turn an event belongs to; null on a Claude Code that does not send it. */
+  promptId: string | null;
+  /** Ids of the background tasks the payload lists as running (Stop and SubagentStop). Only the ids are read. */
+  runningTasks: string[];
   /** The fields that say who is acting; attrs.ts decides what they mean. */
   who: AttrEvent;
 }
 
 const str = (x: unknown): string | null => (typeof x === 'string' ? x : null);
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** The ids of the running tasks in a payload's background_tasks; their descriptions and commands are never read. */
+function runningTaskIds(list: unknown): string[] {
+  if (!Array.isArray(list)) return [];
+  const ids: string[] = [];
+  for (const t of list) if (isObject(t) && t.status === 'running' && typeof t.id === 'string' && TASK_ID.test(t.id)) ids.push(t.id);
+  return ids;
+}
 
 /** Parsed stdin -> the fields this tool uses, or null when it is not a hook payload with a session. */
 export function readHookPayload(v: unknown): HookPayload | null {
@@ -135,6 +147,8 @@ export function readHookPayload(v: unknown): HookPayload | null {
     toolUseId: str(v.tool_use_id),
     // Read for one event only, so no other event's text can reach the phrase check (plaintext.ts).
     lastMessage: event === 'Stop' ? str(v.last_assistant_message) : null,
+    promptId: str(v.prompt_id),
+    runningTasks: runningTaskIds(v.background_tasks),
     questions,
     result,
   };
@@ -244,7 +258,7 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
 /**
  * The plain-text check (plaintext.ts), per event:
  *
- *   UserPromptSubmit ............. this session's turn is "clear"
+ *   UserPromptSubmit ............. this session's turn is "clear", unless nobody typed it (below)
  *   AskUserQuestion, PreToolUse .. this session's turn is "asked": the exact share has this choice
  *   Stop ......................... checked only when every line below holds, else nothing happens:
  *                                    the user has not turned the check off (settings.ts)
@@ -254,14 +268,53 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
  *                                    the payload carries the final message
  *                                  then one line, "1" or "0", is appended to today's file.
  *
- * Throws on a failed write; handle() logs it. Nothing from the message is written or logged.
+ * A prompt nobody typed. Claude Code also fires UserPromptSubmit when a background task ends, to
+ * tell the agent. Such a prompt must not clear "asked", or the agent's wrap-up, which may repeat
+ * the recommendation the user already answered through the tool, would be checked. The prompt's
+ * text is never read, so it is recognised by what surrounds it (orders recorded on 2.1.325):
+ *
+ *   inside the turn that asked ... it carries that turn's prompt id          -> stays "asked"
+ *   after that turn ended ........ a background task was expected to end:    -> stays "asked",
+ *                                    a background subagent ended (SubagentStop     one expected
+ *                                    lists the agent itself as running), or        end is used up
+ *                                    the asking turn's Stop listed a running task
+ *
+ * Each expected end is used up by one prompt, so a task that never ends (a dev server) costs the
+ * one turn after a question and no more. A typed prompt that arrives while an end is expected
+ * cannot be told from the notice and is skipped, never counted. Without prompt ids or task lists
+ * (an older Claude Code) every prompt clears, as before.
+ *
+ * Throws on a failed write; handle() logs it. Nothing from the message is written or logged; of
+ * a background task only its id is kept, with the session's other state.
  */
 function noteTurn(dir: string, p: HookPayload, now: number): void {
-  if (p.event === 'UserPromptSubmit') return putSessionValue(dir, p.sessionId, TURN_STATE, TURN_CLEAR);
-  if (p.event === 'PreToolUse' && p.toolName === QUESTION_TOOL) return putSessionValue(dir, p.sessionId, TURN_STATE, TURN_ASKED);
-  if (p.event !== 'Stop' || p.lastMessage === null) return;
+  const due = (): string[] => (getSessionValue(dir, p.sessionId, TURN_DUE) ?? '').split(',').filter((id) => TASK_ID.test(id));
+  const expectEnds = (ids: string[]): void => {
+    const all = [...new Set([...due(), ...ids])].slice(0, DUE_MAX);
+    putSessionValue(dir, p.sessionId, TURN_DUE, all.join(','));
+  };
+  if (p.event === 'UserPromptSubmit') {
+    const expected = due();
+    if (expected.length > 0) putSessionValue(dir, p.sessionId, TURN_DUE, expected.slice(1).join(','));
+    if (getSessionValue(dir, p.sessionId, TURN_STATE) === TURN_ASKED) {
+      const insideAskingTurn = p.promptId !== null && p.promptId === getSessionValue(dir, p.sessionId, TURN_PROMPT);
+      if (insideAskingTurn || expected.length > 0) return;
+    }
+    return putSessionValue(dir, p.sessionId, TURN_STATE, TURN_CLEAR);
+  }
+  if (p.event === 'PreToolUse' && p.toolName === QUESTION_TOOL) {
+    putSessionValue(dir, p.sessionId, TURN_PROMPT, p.promptId ?? '');
+    return putSessionValue(dir, p.sessionId, TURN_STATE, TURN_ASKED);
+  }
+  // A background subagent lists itself as still running when it stops; one in the foreground does not.
+  if (p.event === 'SubagentStop' && p.who.agentId !== null && p.runningTasks.includes(p.who.agentId)) return expectEnds([p.who.agentId]);
+  if (p.event !== 'Stop') return;
+  const state = getSessionValue(dir, p.sessionId, TURN_STATE);
+  // Only the turn that asked: a later turn listing the same never-ending task must not expect it again.
+  if (state === TURN_ASKED && p.runningTasks.length > 0 && p.promptId !== null && p.promptId === getSessionValue(dir, p.sessionId, TURN_PROMPT)) expectEnds(p.runningTasks);
+  if (p.lastMessage === null) return;
   if (plainTextSetting(dir) !== 'on' || noticeShownAt(dir) === null) return;
-  if (getSessionValue(dir, p.sessionId, TURN_STATE) !== TURN_CLEAR) return;
+  if (state !== TURN_CLEAR) return;
   noteTurnEnd(dir, now, hasRecommendation(p.lastMessage));
 }
 
