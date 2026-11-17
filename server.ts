@@ -42,7 +42,7 @@ import {
 } from './inbox';
 import { FAST_ANSWER_MS, MIN_N, TIME_BUCKET_MS } from './judgment';
 import { boardData } from './outcomes';
-import { turnWindows } from './plaintext';
+import { OFFERS_DIR, OFFERS_NOTICE_FILE, turnWindows } from './plaintext';
 import { ASK_THROUGH_QUESTION_TOOL, DEFAULT_SETTINGS_SHOWN, UpdateCheck, plainTextSetting, settingState, settingsFileShown } from './settings';
 import { INSTANCE_HEADER, STARTER_STEP_MS, STARTER_WAIT_MS, probeServer, type ServerState } from './hook';
 
@@ -101,11 +101,14 @@ export function plainTextJson(dir: string, now: number) {
   try {
     const w = turnWindows(dir, now);
     if (w === null) return null;
+    const offers = turnWindows(dir, now, OFFERS_DIR, OFFERS_NOTICE_FILE);
     return {
       unreadable: false as const,
       since: w.since,
       last: w.last,
       before: w.before,
+      /** Replies that ended with an offer, counted apart and since their own notice. Absent before that notice. */
+      ...(offers === null ? {} : { offers }),
       /** Whether the agent is already asked to use the question tool; the board then offers no setting. */
       asking: settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on',
     };

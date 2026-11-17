@@ -18,7 +18,7 @@ import { STARTER_STEP_MS, STARTER_WAIT_MS, dataDir, realDeps, runStarter, type S
 import { APP_TITLE, boardUrl, captureSince, explicitPort, knownPort, lastHookErrorTs, writeWantedVersion } from '../inbox';
 import { readObservations } from '../outcomes';
 import { ALIASES_FILE, readAliases } from '../project';
-import { noticeShownAt, turnWindows } from '../plaintext';
+import { OFFERS_DIR, OFFERS_NOTICE_FILE, noticeShownAt, turnWindows } from '../plaintext';
 import { ASK_THROUGH_QUESTION_TOOL, SETTINGS_FILE, plainTextSetting, settingState, updateSetting } from '../settings';
 
 type Env = Record<string, string | undefined>;
@@ -107,9 +107,13 @@ export function plainTextStatus(dir: string, now: number): string {
   try {
     const w = turnWindows(dir, now)!;
     const since = new Date(w.since).toISOString().slice(0, 10);
+    const n = (x: number) => x.toLocaleString('en-US');
+    const o = turnWindows(dir, now, OFFERS_DIR, OFFERS_NOTICE_FILE);
+    // Offers are counted apart, since their own notice; before it the line reads as it always did.
+    const offers = o === null ? '' : o.last.checked === 0 ? '; offers: none checked yet' : `; offers: about ${n(o.last.matched)} of ${n(o.last.checked)}`;
     return w.last.checked === 0
-      ? `plain-text check: on since ${since}; no replies checked in the last 7 days`
-      : `plain-text check: on since ${since}; about ${w.last.matched.toLocaleString('en-US')} of ${w.last.checked.toLocaleString('en-US')} replies in the last 7 days`;
+      ? `plain-text check: on since ${since}; no replies checked in the last 7 days${offers}`
+      : `plain-text check: on since ${since}; about ${n(w.last.matched)} of ${n(w.last.checked)} replies in the last 7 days${offers}`;
   } catch {
     return 'plain-text check: could not be read';
   }

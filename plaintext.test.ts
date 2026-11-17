@@ -4,7 +4,27 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { handle, sessionStartPlan } from './hook';
 import { Inbox } from './inbox';
-import { NOTICE_FILE, NOTICE_LINE, noticeLine, PHRASES, TEXT_MAX, TURNS_DIR, dayKey, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt, turnWindows } from './plaintext';
+import {
+  NOTICE_FILE,
+  NOTICE_LINE,
+  OFFERS_DIR,
+  OFFERS_NOTICE_FILE,
+  OFFER_QUESTIONS,
+  OFFER_REQUESTS,
+  OFFER_TAIL,
+  PHRASES,
+  TEXT_MAX,
+  TURNS_DIR,
+  dayKey,
+  hasOffer,
+  hasRecommendation,
+  markNoticeShown,
+  noteTurnEnd,
+  noticeLine,
+  noticeShownAt,
+  offersNoticeLine,
+  turnWindows,
+} from './plaintext';
 import { plainTextStatus } from './scripts/board';
 import { judgmentJson, plainTextJson } from './server';
 import { COUNT_PLAIN_TEXT, DEFAULT_SETTINGS_SHOWN, SETTINGS_FILE, plainTextSetting, settingState, settingValue, settingsFileShown } from './settings';
@@ -30,6 +50,21 @@ function dataDir(opts: { settings?: string; noticeAt?: number | null } = {}): st
   return dir;
 }
 const dayFile = (dir: string, ts: number) => path.join(dir, TURNS_DIR, dayKey(ts));
+/** The offers store's lines for a day; [] when there is no file. */
+const offerLines = (dir: string, ts: number): string[] => {
+  try {
+    return fs.readFileSync(path.join(dir, OFFERS_DIR, dayKey(ts)), 'utf8').split('\n').filter(Boolean);
+  } catch {
+    return [];
+  }
+};
+/** A data folder whose user has seen both notices. */
+const offersDir = (at = T - 30 * DAY): string => {
+  const dir = dataDir();
+  markNoticeShown(dir, at, OFFERS_NOTICE_FILE);
+  return dir;
+};
+const OFFERS_LINE = offersNoticeLine('~/.agent-inbox/settings.json');
 const lines = (dir: string, ts: number): string[] => {
   try {
     return fs.readFileSync(dayFile(dir, ts), 'utf8').split('\n').filter(Boolean);
@@ -82,6 +117,58 @@ describe('the phrase check', () => {
     const start = performance.now();
     expect(hasRecommendation(hostile)).toBe(false);
     expect(performance.now() - start).toBeLessThan(50);
+  });
+});
+
+describe('the offer check', () => {
+  test('a question phrase needs its question mark on the same line; any case, curly apostrophes and quotes', () => {
+    for (const p of OFFER_QUESTIONS) {
+      expect(hasOffer(`The fix is ready. ${p[0].toUpperCase()}${p.slice(1)} open a pull request?`)).toBe(true);
+      expect(hasOffer(`The fix is ready, and you ${p} open a pull request.`)).toBe(false);
+      expect(hasOffer(`${p} open it\nIs that right?`)).toBe(false);
+    }
+    expect(hasOffer('Next is the import. Shall I go ahead?')).toBe(true);
+    expect(hasOffer('Want me to commit, or draft the claims first?')).toBe(true);
+  });
+
+  test('a request for a go-ahead matches, with the words to say in straight or curly quotes', () => {
+    for (const p of OFFER_REQUESTS) expect(hasOffer(`All tests pass. ${p[0].toUpperCase()}${p.slice(1)} want it and I'll start.`)).toBe(true);
+    expect(hasOffer('CI is green. Say "merge when green" and I\'ll merge it.')).toBe(true);
+    expect(hasOffer('CI is green. Say “merge” and I’ll merge it.')).toBe(true);
+    expect(hasOffer('Which do you prefer? And say "merge when green" for the other one.')).toBe(true);
+    expect(hasOffer('When you are happy, say "commit and push".')).toBe(true);
+    expect(hasOffer('Attach it to a new chat and say "follow this brief".')).toBe(false); // an instruction for elsewhere, mid-sentence
+  });
+
+  test('near-misses and ordinary replies do not match', () => {
+    for (const t of [
+      '',
+      'Done. All 404 tests pass.',
+      'The layout list says "turning right" when it should say "turning left".',
+      'No GitHub repo until you say so.',
+      "I'd rather say so than let it pass silently.",
+      'Should it fail, the log names the port.',
+      'What should improve is the wording?',
+      'They want me too.',
+      'Why did the essay "' + 'x'.repeat(60) + '" fail?',
+    ]) {
+      expect(hasOffer(t)).toBe(false);
+    }
+  });
+
+  test('only the end of the reply counts, and code and quoted lines never do', () => {
+    expect(hasOffer('Want me to start?' + ' More detail follows.'.repeat(30))).toBe(false);
+    expect(hasOffer('x'.repeat(2_000) + ' Want me to start?')).toBe(true);
+    expect(hasOffer('Here is the script:\n```\necho "Shall I go ahead?"\n```\nDone.')).toBe(false);
+    expect(hasOffer('> Want me to start?\nThat was the earlier question; it is done now.')).toBe(false);
+    expect(hasOffer('Want me to start?' + ' '.repeat(OFFER_TAIL * 2))).toBe(true); // trailing blanks are not the end
+  });
+
+  test('a long hostile text is quick', () => {
+    const hostile = ('want me to ' + 'should i shall i say " '.repeat(8)).repeat(2_000);
+    const start = performance.now();
+    hasOffer(hostile);
+    expect(performance.now() - start).toBeLessThan(200);
   });
 });
 
@@ -257,6 +344,44 @@ describe('the hook at a turn end', () => {
     expect(fs.readFileSync(path.join(dir, 'attrs', 'sess-1', 'turn-due'), 'utf8')).toBe('agentA,taskB');
   });
 
+  test('offers are noted beside recommendations, each on its own, and only once their notice was shown', () => {
+    const before = dataDir(); // the first notice was shown, the offers notice was not
+    prompt(before);
+    stop(before, 'The fix is ready. Want me to open a pull request?');
+    expect(lines(before, T)).toEqual(['0']);
+    expect(fs.existsSync(path.join(before, OFFERS_DIR))).toBe(false);
+
+    const dir = offersDir();
+    for (const reply of ['The fix is ready. Want me to open a pull request?', "Two ways. I'd recommend the first.", "I'd do the first. Say the word and I'll start.", 'Done.']) {
+      prompt(dir);
+      stop(dir, reply);
+    }
+    expect(lines(dir, T)).toEqual(['0', '1', '1', '0']);
+    expect(offerLines(dir, T)).toEqual(['1', '0', '1', '0']);
+  });
+
+  test('a turn that asked through the question tool notes no offer either, and nothing but 1 and 0 is kept', () => {
+    const dir = offersDir();
+    prompt(dir);
+    ask(dir);
+    stop(dir, 'You picked B. Want me to start on it? SECRET-REPLY-TEXT');
+    expect(offerLines(dir, T)).toEqual([]);
+    prompt(dir);
+    stop(dir, 'SECRET-REPLY-TEXT Want me to start?');
+    expect(offerLines(dir, T)).toEqual(['1']);
+    expect(everything(dir)).not.toContain('SECRET-REPLY-TEXT');
+    expect(fs.statSync(path.join(dir, OFFERS_DIR)).mode & 0o777).toBe(0o700);
+    expect(fs.statSync(path.join(dir, OFFERS_DIR, dayKey(T))).mode & 0o777).toBe(0o600);
+  });
+
+  test('with the check turned off no offer is noted', () => {
+    const dir = dataDir({ settings: '{"count_plain_text": false}' });
+    markNoticeShown(dir, T - DAY, OFFERS_NOTICE_FILE);
+    prompt(dir);
+    stop(dir, 'Want me to start?');
+    expect(offerLines(dir, T)).toEqual([]);
+  });
+
   test('a session that has seen no prompt under this code is skipped, and so is one whose state cannot be read', () => {
     const dir = dataDir();
     stop(dir, "I'd recommend A."); // a session already running when the plugin was updated
@@ -344,6 +469,32 @@ describe('the one-time notice', () => {
     }
   });
 
+  test('the offers notice comes at a later session start than the first notice, once, and only then are offers noted', () => {
+    const dir = dataDir({ noticeAt: null });
+    const first = sessionStartPlan(dir, null, false, NOTICE_LINE, OFFERS_LINE);
+    expect(first).toEqual({ output: JSON.stringify({ systemMessage: NOTICE_LINE }), notice: true }); // one notice per start
+    markNoticeShown(dir, T);
+    const second = sessionStartPlan(dir, 'Line.', true, NOTICE_LINE, OFFERS_LINE);
+    expect(second.notice).toBe(false);
+    expect(second.offersNotice).toBe(true);
+    expect(shownTo(second.output)).toBe(`Line.\n${OFFERS_LINE}`);
+    expect(JSON.stringify(JSON.parse(second.output!).hookSpecificOutput)).not.toContain('Want me to start');
+    expect(sessionStartPlan(dir, null, false, NOTICE_LINE, OFFERS_LINE).offersNotice).toBe(true); // not marked yet: shown again
+    markNoticeShown(dir, T, OFFERS_NOTICE_FILE);
+    expect(sessionStartPlan(dir, null, false, NOTICE_LINE, OFFERS_LINE)).toEqual({ output: null, notice: false });
+    expect(noticeShownAt(dir)).toBe(T); // the first notice's time is its own
+  });
+
+  test('the offers notice is not shown when the check is off, and says what is added and how to turn both off', () => {
+    for (const settings of ['{"count_plain_text": false}', '{nope']) {
+      const dir = dataDir({ settings });
+      expect(sessionStartPlan(dir, null, false, NOTICE_LINE, OFFERS_LINE)).toEqual({ output: null, notice: false });
+    }
+    expect(offersNoticeLine('/srv/board/settings.json')).toBe(
+      'The Nod Board now also checks the end of the agent\'s last message of each turn for an offer, such as "Want me to start?" or "Say the word and I\'ll start". It stores one more 1 or 0 per reply, never the text, and still does not read what you type. To turn both checks off, add "count_plain_text": false to /srv/board/settings.json.',
+    );
+  });
+
   test('with a moved data directory the line names the settings file there, and nothing else changes', () => {
     const moved = noticeLine('/srv/board/settings.json');
     expect(moved).toBe(NOTICE_LINE.replace('~/.agent-inbox/settings.json', '/srv/board/settings.json'));
@@ -388,6 +539,27 @@ describe('what the board and the status command are given', () => {
     expect(j.plain_text).toEqual({ unreadable: true });
     expect(j.questions).toBe(0);
     expect(j.version).toBe('1.2.3');
+  });
+
+  test('offers reach the board and the status line with their own counts, and only after their notice', () => {
+    const dir = dataDir({ noticeAt: T - 20 * DAY });
+    noteTurnEnd(dir, T, true);
+    noteTurnEnd(dir, T - 9 * DAY, false);
+    expect('offers' in plainTextJson(dir, T)!).toBe(false);
+    expect(plainTextStatus(dir, T)).toBe('plain-text check: on since 2026-10-27; about 1 of 1 replies in the last 7 days');
+    markNoticeShown(dir, T - 2 * DAY, OFFERS_NOTICE_FILE);
+    expect(plainTextStatus(dir, T)).toBe('plain-text check: on since 2026-10-27; about 1 of 1 replies in the last 7 days; offers: none checked yet');
+    noteTurnEnd(dir, T, true, OFFERS_DIR);
+    noteTurnEnd(dir, T, false, OFFERS_DIR);
+    noteTurnEnd(dir, T - DAY, true, OFFERS_DIR);
+    expect(plainTextJson(dir, T)).toMatchObject({
+      last: { checked: 1, matched: 1 },
+      before: { checked: 1, matched: 0 },
+      offers: { since: T - 2 * DAY, last: { checked: 3, matched: 2 }, before: null },
+    });
+    expect(turnWindows(dir, T)).toEqual({ since: T - 20 * DAY, last: { checked: 1, matched: 1 }, before: { checked: 1, matched: 0 } }); // the first store is untouched
+    expect(plainTextStatus(dir, T)).toBe('plain-text check: on since 2026-10-27; about 1 of 1 replies in the last 7 days; offers: about 2 of 3');
+    expect(judgmentJson(inboxOf(dir), '1.2.3', T).plain_text).toMatchObject({ offers: { last: { checked: 3, matched: 2 } } });
   });
 
   test('the status line names each state', () => {

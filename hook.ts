@@ -54,7 +54,25 @@ import {
 } from './inbox';
 import { classify, titleOf, toQuestions, type CallResult, type QuestionDef } from './judgment';
 import { noteStart, projectAt } from './project';
-import { DUE_MAX, NOTICE_LINE, noticeLine, TASK_ID, TURN_ASKED, TURN_CLEAR, TURN_DUE, TURN_PROMPT, TURN_STATE, hasRecommendation, markNoticeShown, noteTurnEnd, noticeShownAt } from './plaintext';
+import {
+  DUE_MAX,
+  NOTICE_LINE,
+  OFFERS_DIR,
+  OFFERS_NOTICE_FILE,
+  TASK_ID,
+  TURN_ASKED,
+  TURN_CLEAR,
+  TURN_DUE,
+  TURN_PROMPT,
+  TURN_STATE,
+  hasOffer,
+  hasRecommendation,
+  markNoticeShown,
+  noteTurnEnd,
+  noticeLine,
+  noticeShownAt,
+  offersNoticeLine,
+} from './plaintext';
 import { ASK_THROUGH_QUESTION_TOOL, plainTextSetting, sessionStartOutput, settingState, settingsFileShown } from './settings';
 import { ASKED, FORMAT_VERSION, appendObservation, type Observation } from './outcomes';
 
@@ -266,7 +284,9 @@ export function handle(raw: string, env: Record<string, string | undefined>, now
  *                                    the turn is exactly "clear" (an unknown or unreadable state
  *                                    skips: a session that began before this code has no history)
  *                                    the payload carries the final message
- *                                  then one line, "1" or "0", is appended to today's file.
+ *                                  then one line, "1" or "0", is appended to today's file;
+ *                                  and, once the offers notice was shown too, one line to
+ *                                  today's offers file (plaintext.ts hasOffer).
  *
  * A prompt nobody typed. Claude Code also fires UserPromptSubmit when a background task ends, to
  * tell the agent. Such a prompt must not clear "asked", or the agent's wrap-up, which may repeat
@@ -316,17 +336,29 @@ function noteTurn(dir: string, p: HookPayload, now: number): void {
   if (plainTextSetting(dir) !== 'on' || noticeShownAt(dir) === null) return;
   if (state !== TURN_CLEAR) return;
   noteTurnEnd(dir, now, hasRecommendation(p.lastMessage));
+  // Offers have their own notice and their own store: nothing is noted before the user was told.
+  if (noticeShownAt(dir, OFFERS_NOTICE_FILE) !== null) noteTurnEnd(dir, now, hasOffer(p.lastMessage), OFFERS_DIR);
 }
 
 /**
  * What a session start prints, and whether the notice is part of it. The notice is due when the
  * plain-text check is on and this machine's user has not been shown it; the caller marks it shown
- * only after the output has been written.
+ * only after the output has been written. With `offersText` the offers notice is planned the same
+ * way, at a later start than the first notice.
  */
-export function sessionStartPlan(dir: string, line: string | null, nudge: boolean, noticeText: string = NOTICE_LINE): { output: string | null; notice: boolean } {
-  const notice = plainTextSetting(dir) === 'on' && noticeShownAt(dir) === null;
-  const shown = [line, notice ? noticeText : null].filter((x): x is string => !!x).join('\n') || null;
-  return { output: sessionStartOutput(shown, nudge), notice };
+export function sessionStartPlan(
+  dir: string,
+  line: string | null,
+  nudge: boolean,
+  noticeText: string = NOTICE_LINE,
+  offersText: string | null = null,
+): { output: string | null; notice: boolean; offersNotice?: true } {
+  const on = plainTextSetting(dir) === 'on';
+  const notice = on && noticeShownAt(dir) === null;
+  // One notice per session start: the offers notice waits for a start after the first one was shown.
+  const offers = on && !notice && offersText !== null && noticeShownAt(dir, OFFERS_NOTICE_FILE) === null;
+  const shown = [line, notice ? noticeText : null, offers ? offersText : null].filter((x): x is string => !!x).join('\n') || null;
+  return { output: sessionStartOutput(shown, nudge), notice, ...(offers ? { offersNotice: true as const } : {}) };
 }
 
 /** Handle one hook invocation from Codex. Never throws. Writes question observations and nothing else. */
@@ -564,8 +596,8 @@ if (import.meta.main) {
     // added to that context is a fixed sentence, and only when the user turned it on (settings.ts).
     const dir = dataDir(process.env);
     // The notice names the settings file where it is on this machine (AGENT_INBOX_DIR may move it).
-    const notice = noticeLine(settingsFileShown(dir, process.env.HOME || os.homedir()));
-    const plan = sessionStartPlan(dir, line, settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on', notice);
+    const settingsFile = settingsFileShown(dir, process.env.HOME || os.homedir());
+    const plan = sessionStartPlan(dir, line, settingState(dir, ASK_THROUGH_QUESTION_TOOL) === 'on', noticeLine(settingsFile), offersNoticeLine(settingsFile));
     if (plan.output) process.stdout.write(plan.output + '\n');
     if (plan.notice) {
       // Only now, after the line went out: a failure before this point shows the notice again
@@ -574,6 +606,13 @@ if (import.meta.main) {
         markNoticeShown(dir, Date.now());
       } catch (err) {
         logError(dir, `could not record that the plain-text notice was shown: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
+      }
+    }
+    if (plan.offersNotice) {
+      try {
+        markNoticeShown(dir, Date.now(), OFFERS_NOTICE_FILE);
+      } catch (err) {
+        logError(dir, `could not record that the offers notice was shown: ${(err as NodeJS.ErrnoException).code ?? (err as Error).name}`);
       }
     }
   }

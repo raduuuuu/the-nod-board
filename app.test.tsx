@@ -213,6 +213,17 @@ describe('the plain-text line', () => {
     expect(t).not.toContain('%');
   });
 
+  test('offers are a second count with their own total, after the recommendations and before the closing sentence', () => {
+    const withOffers = (matched: number, checked: number) => ({ ...pt([9, 140], [14, 150]), offers: { since: NOW - 3 * DAY, last: { matched, checked }, before: null } });
+    expect(line(withOffers(31, 1120))).toBe(
+      'Outside the question tool, last 7 days: about 9 of 140 replies ended with a recommendation (7 days before: 14 of 150). About 31 of 1,120 ended with an offer such as “Want me to start?”. These are not in the share above.',
+    );
+    expect(line(withOffers(31, 1120))).not.toContain('%');
+    // Too few checked since the offers notice: the line reads as it did before offers existed.
+    expect(line(withOffers(2, 4))).toBe(line(pt([9, 140], [14, 150])));
+    expect(line(withOffers(0, 5))).toContain('About 0 of 5 ended with an offer');
+  });
+
   test('under two weeks of checking it says since when; an empty earlier week says so', () => {
     expect(line(pt([9, 140], null, { since: NOW - 3 * DAY }))).toBe(
       'Outside the question tool, last 7 days: about 9 of 140 replies ended with a recommendation (counting since Nov 9). These are not in the share above.',

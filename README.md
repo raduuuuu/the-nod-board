@@ -105,11 +105,19 @@ acceptance number the board then says, for example, "Outside the question tool, 
 9 of 140 replies ended with a recommendation (7 days before: 14 of 150)." It never tries to work
 out whether you agreed.
 
+It keeps a second count the same way: replies that end with an offer, either a question ("Want me
+to start?", "Shall I commit?") or a request for a go-ahead ("Say the word and I'll start", "Say
+'merge' and I'll merge it"). Only the last 400 characters of the message are looked at for this.
+The line then adds, for example, "About 31 of 120 ended with an offer such as 'Want me to
+start?'." Offers are counted beside the recommendations and never added to them, and they have
+their own total, because they are counted from their own notice on.
+
 - **It is on by default, and you are told first.** The first session start after installing or
   updating shows one line saying what is checked and how to turn it off. Nothing is checked on
-  your machine before that line has been shown.
+  your machine before that line has been shown. The offer count has its own line, shown once at
+  a later session start, and no offer is noted before it.
 - **To turn it off**, add this to `~/.agent-inbox/settings.json`: `{ "count_plain_text": false }`.
-  A settings file that cannot be read also turns it off.
+  That turns off both counts. A settings file that cannot be read also turns them off.
 - **"Replies"** are turn ends in which no question went through the question tool; a turn that
   asked you something that way is already in the exact share and is left out here. So is the
   agent's wrap-up when a background task from that turn ends later, since it may repeat the
@@ -119,8 +127,10 @@ out whether you agreed.
   dev server, costs that one turn and no more.
 - **It is an estimate.** Measured on one person's history (960 replies, 2026-11-16): 43 of 46
   matches were real recommendations, and at least 4 in 10 real recommendations used other words
-  and were missed. Offers such as "Want me to do that?" are not counted at all; in that history
-  they were more common than explicit recommendations. English only, Claude Code only.
+  and were missed. The offer phrases were measured on the same history (1,091 distinct replies,
+  2026-11-17): all 88 question matches put a decision to the user, and about 55 of 60 sampled
+  go-ahead matches were real; about 27 in 100 replies matched. Offers in other words ("I can
+  rename it if you want") are missed. English only, Claude Code only.
 - **A count cannot be traced back.** Since no text is kept, nobody, including you, can later see
   which reply was counted.
 
@@ -211,6 +221,8 @@ about, when the plain-text notice was shown, a pending server start, when the la
 - `turns/<day>`: per turn end the plain-text check looked at, one line, `1` when a recommendation
   phrase was found and `0` when not. No session, no time of day, no text. One small file per day,
   never compacted.
+- `offers/<day>`: the same for the offer count, one line per turn end checked since its notice,
+  `1` when the reply ended with an offer and `0` when not.
 
 While a session runs, `attrs/<session id>/` holds the name of the skill each of its agents is in,
 the session's model, the session's project, whether its current turn asked a question through

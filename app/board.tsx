@@ -73,6 +73,8 @@ export function PlainTextLine(props: { plainText: PlainTextPayload | undefined; 
   if (last.checked < props.minN) {
     return <p class="muted framing">Outside the question tool, last 7 days: too few replies checked to say ({count(last.checked)}).</p>;
   }
+  // Offers have their own count of checked replies: they began later than the recommendations.
+  const offers = pt.offers && pt.offers.last.checked >= props.minN ? pt.offers.last : null;
   const compared =
     before === null
       ? `counting since ${day(pt.since, props.timeZone)}`
@@ -85,7 +87,17 @@ export function PlainTextLine(props: { plainText: PlainTextPayload | undefined; 
       <span class="fig">
         about {count(last.matched)} of {count(last.checked)}
       </span>{' '}
-      replies ended with a recommendation ({compared}). These are not in the share above.
+      replies ended with a recommendation ({compared}).
+      {offers ? (
+        <>
+          {' '}
+          <span class="fig">
+            About {count(offers.matched)} of {count(offers.checked)}
+          </span>{' '}
+          ended with an offer such as “Want me to start?”.
+        </>
+      ) : null}{' '}
+      These are not in the share above.
     </p>
   );
 }

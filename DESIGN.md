@@ -81,11 +81,16 @@ are turn ends in which no question went through the question tool.
 | State | Text |
 |---|---|
 | This week and the week before | Outside the question tool, last 7 days: about 9 of 140 replies ended with a recommendation (7 days before: 14 of 150). These are not in the share above. |
+| Offers counted too, at least 5 checked | the same, with a second count before the closing sentence: "… (7 days before: 14 of 150). About 31 of 120 ended with an offer such as “Want me to start?”. These are not in the share above." |
 | Checking began under two weeks ago | the same, with "(counting since Nov 16)" in place of the comparison |
 | Nothing checked in the week before | the same, with "(none checked in the 7 days before)" |
 | Fewer than 5 replies checked | Outside the question tool, last 7 days: too few replies checked to say (3). |
 | None checked | Outside the question tool: no replies were checked in the last 7 days. |
 | Off, not begun, or unreadable | Only choices asked through the question tool are counted; a recommendation made in plain text is not seen. |
+
+Offers have their own total: they are counted from their own notice, later than the
+recommendations. With fewer than 5 replies checked for offers the line reads as it does without
+them, so the first days after the offers notice show no change.
 
 When the data cannot be read, capture health also says "plain-text check: could not be read".
 
